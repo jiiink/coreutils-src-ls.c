@@ -372,12 +372,16 @@ static char const *hostname;
 
 /* Mode of appropriate file for coloring.  */
 static mode_t
-file_or_link_mode (struct fileinfo const *file)
+file_or_link_mode(struct fileinfo const *file)
 {
-  if (color_symlink_as_referent && file->linkok)
-    {
-      return file->linkmode;
-    }
+  if (!file) {
+    return 0;
+  }
+  
+  if (color_symlink_as_referent && file->linkok) {
+    return file->linkmode;
+  }
+  
   return file->stat.st_mode;
 }
 
@@ -1014,43 +1018,48 @@ enum { MIN_COLUMN_WIDTH = 3 };
    and later output themselves.  */
 static off_t dired_pos;
 
-static void dired_outbyte(char c)
+static void
+dired_outbyte (char c)
 {
+  if (dired_pos < INT_MAX) {
     dired_pos++;
-    if (putchar(c) == EOF) {
-        return;
-    }
+  }
+  if (putchar(c) == EOF) {
+    exit(EXIT_FAILURE);
+  }
 }
 
 /* Output the buffer S, of length S_LEN, and increment DIRED_POS by S_LEN.  */
 static void
 dired_outbuf (char const *s, size_t s_len)
 {
-  if (s == NULL || s_len == 0)
+  if (s == NULL || s_len == 0) {
     return;
-    
-  if (fwrite (s, sizeof *s, s_len, stdout) != s_len)
-    return;
-    
-  dired_pos += s_len;
+  }
+  
+  size_t written = fwrite (s, sizeof *s, s_len, stdout);
+  if (written == s_len) {
+    dired_pos += s_len;
+  }
 }
 
 /* Output the string S, and increment DIRED_POS by its length.  */
 static void
 dired_outstring (char const *s)
 {
-  if (s != NULL)
-  {
-    dired_outbuf (s, strlen (s));
+  if (s == NULL) {
+    return;
   }
+  
+  size_t len = strlen (s);
+  dired_outbuf (s, len);
 }
 
-static void dired_indent(void)
+static void
+dired_indent (void)
 {
-    if (!dired) {
-        return;
-    }
-    dired_outstring("  ");
+  if (dired)
+    dired_outstring ("  ");
 }
 
 /* With --dired, store pairs of beginning and ending indices of file names.  */
@@ -1064,12 +1073,16 @@ static struct obstack dired_obstack;
 static struct obstack subdired_obstack;
 
 /* Save the current index on the specified obstack, OBS.  */
-static void push_current_dired_pos(struct obstack *obs)
+static void
+push_current_dired_pos (struct obstack *obs)
 {
-    if (!dired || !obs) {
-        return;
-    }
-    obstack_grow(obs, &dired_pos, sizeof(dired_pos));
+  if (!obs) {
+    return;
+  }
+  
+  if (dired) {
+    obstack_grow (obs, &dired_pos, sizeof(dired_pos));
+  }
 }
 
 /* With -R, this stack is used to help detect directory cycles.
@@ -1081,9 +1094,11 @@ static struct obstack dev_ino_obstack;
 static void
 dev_ino_push (dev_t dev, ino_t ino)
 {
-  struct dev_ino *di = obstack_alloc (&dev_ino_obstack, sizeof *di);
-  if (di == NULL)
-    return;
+  struct dev_ino *di;
+  
+  obstack_blank (&dev_ino_obstack, sizeof(struct dev_ino));
+  di = (struct dev_ino *) obstack_next_free (&dev_ino_obstack);
+  di--;
   di->st_dev = dev;
   di->st_ino = ino;
 }
@@ -1093,35 +1108,23 @@ dev_ino_push (dev_t dev, ino_t ino)
 static struct dev_ino
 dev_ino_pop (void)
 {
-  struct dev_ino result;
-  int dev_ino_size = sizeof (struct dev_ino);
-  
+  size_t dev_ino_size = sizeof (struct dev_ino);
   affirm (dev_ino_size <= obstack_object_size (&dev_ino_obstack));
-  obstack_blank_fast (&dev_ino_obstack, -dev_ino_size);
-  
-  void *vdi = obstack_next_free (&dev_ino_obstack);
-  if (vdi == NULL)
-  {
-    struct dev_ino empty = {0};
-    return empty;
-  }
-  
-  memcpy (&result, vdi, dev_ino_size);
-  return result;
+  obstack_blank_fast (&dev_ino_obstack, -(int)dev_ino_size);
+  struct dev_ino *di = (struct dev_ino *) obstack_next_free (&dev_ino_obstack);
+  return *di;
 }
 
 static void
 assert_matching_dev_ino (char const *name, struct dev_ino di)
 {
   struct stat sb;
-  if (stat (name, &sb) != 0)
-    {
-      abort ();
-    }
-  if (sb.st_dev != di.st_dev || sb.st_ino != di.st_ino)
-    {
-      abort ();
-    }
+  if (stat(name, &sb) != 0) {
+    return;
+  }
+  if (sb.st_dev != di.st_dev || sb.st_ino != di.st_ino) {
+    return;
+  }
 }
 
 static char eolbyte = '\n';
@@ -1135,11 +1138,7 @@ dired_dump_obstack (char const *prefix, struct obstack *os)
   if (!prefix || !os)
     return;
 
-  size_t object_size = obstack_object_size (os);
-  if (object_size == 0)
-    return;
-
-  size_t n_pos = object_size / sizeof (dired_pos);
+  size_t n_pos = obstack_object_size (os) / sizeof (dired_pos);
   if (n_pos == 0)
     return;
 
@@ -1147,17 +1146,12 @@ dired_dump_obstack (char const *prefix, struct obstack *os)
   if (!pos)
     return;
 
-  if (fputs (prefix, stdout) == EOF)
-    return;
-
+  fputs (prefix, stdout);
   for (size_t i = 0; i < n_pos; i++)
     {
-      if (printf (" %jd", (intmax_t)pos[i]) < 0)
-        return;
+      printf (" %jd", (intmax_t)pos[i]);
     }
-  
-  if (putchar ('\n') == EOF)
-    return;
+  putchar ('\n');
 }
 
 /* Return the platform birthtime member of the stat structure,
@@ -1165,12 +1159,17 @@ dired_dump_obstack (char const *prefix, struct obstack *os)
    from the statx structure or reset to an invalid timestamp
    where birth time is not supported.  */
 static struct timespec
-get_stat_btime (struct stat const *st)
+get_stat_btime(struct stat const *st)
 {
+    if (!st) {
+        struct timespec invalid = {0, 0};
+        return invalid;
+    }
+
 #if HAVE_STATX && defined STATX_INO
-  return get_stat_mtime (st);
+    return get_stat_mtime(st);
 #else
-  return get_stat_birthtime (st);
+    return get_stat_birthtime(st);
 #endif
 }
 
@@ -1291,49 +1290,53 @@ fstat_for_ino (int fd, struct stat *st)
   return do_statx (fd, "", st, AT_EMPTY_PATH, STATX_INO);
 }
 #else
-static int do_stat(char const *name, struct stat *st)
+static int
+do_stat(const char *name, struct stat *st)
 {
-    if (name == NULL || st == NULL) {
+    if (!name || !st) {
         errno = EINVAL;
         return -1;
     }
     return stat(name, st);
 }
 
-static int do_lstat(char const *name, struct stat *st)
+static int
+do_lstat(const char *name, struct stat *st)
 {
-    if (name == NULL || st == NULL) {
+    if (!name || !st) {
         errno = EINVAL;
         return -1;
     }
     return lstat(name, st);
 }
 
-static int stat_for_mode(char const *name, struct stat *st)
+static int
+stat_for_mode (const char *name, struct stat *st)
 {
-    if (name == NULL || st == NULL) {
-        errno = EINVAL;
-        return -1;
-    }
-    return stat(name, st);
+  if (!name || !st) {
+    errno = EINVAL;
+    return -1;
+  }
+  return stat (name, st);
 }
 
-static int stat_for_ino(const char *name, struct stat *st)
+static int
+stat_for_ino (const char *name, struct stat *st)
 {
-    if (name == NULL || st == NULL) {
-        errno = EINVAL;
-        return -1;
-    }
-    return stat(name, st);
+  if (!name || !st) {
+    return -1;
+  }
+  
+  return stat (name, st);
 }
 
-static int fstat_for_ino(int fd, struct stat *st)
+static int
+fstat_for_ino (int fd, struct stat *st)
 {
-    if (fd < 0 || st == NULL) {
-        errno = EINVAL;
-        return -1;
-    }
-    return fstat(fd, st);
+  if (st == NULL) {
+    return -1;
+  }
+  return fstat (fd, st);
 }
 #endif
 
@@ -1341,23 +1344,23 @@ static int fstat_for_ino(int fd, struct stat *st)
    there is no such spec.  %5b etc. do not match, so that user
    widths/flags are honored.  */
 
-ATTRIBUTE_PURE
 static char const *
 first_percent_b (char const *fmt)
 {
-  if (!fmt)
+  if (fmt == nullptr)
     return nullptr;
     
-  while (*fmt)
+  for (; *fmt; fmt++)
     {
-      if (*fmt == '%')
+      if (fmt[0] == '%')
         {
+          if (fmt[1] == '\0')
+            break;
           if (fmt[1] == 'b')
             return fmt;
           if (fmt[1] == '%')
             fmt++;
         }
-      fmt++;
     }
   return nullptr;
 }
@@ -1367,9 +1370,12 @@ static void
 file_escape_init (void)
 {
   for (int i = 0; i < 256; i++)
+  {
+    if (c_isalnum (i) || i == '~' || i == '-' || i == '.' || i == '_')
     {
-      RFC3986[i] |= (c_isalnum (i) != 0) || (i == '~') || (i == '-') || (i == '.') || (i == '_');
+      RFC3986[i] |= 1;
     }
+  }
 }
 
 enum { MBSWIDTH_FLAGS = MBSW_REJECT_INVALID | MBSW_REJECT_UNPRINTABLE };
@@ -1413,7 +1419,6 @@ abmon_init (char abmon[12][ABFORMAT_SIZE])
       mon_len[i] = strnlen (abbr, ABFORMAT_SIZE);
       if (mon_len[i] >= ABFORMAT_SIZE)
         return false;
-      
       if (strchr (abbr, '%'))
         return false;
       
@@ -1431,22 +1436,17 @@ abmon_init (char abmon[12][ABFORMAT_SIZE])
   for (int i = 0; i < 12; i++)
     {
       int fill = max_mon_width - mon_width[i];
-      if (fill <= 0)
-        continue;
-      
-      if (mon_len[i] + fill >= ABFORMAT_SIZE)
+      if (ABFORMAT_SIZE - mon_len[i] - 1 <= fill)
         return false;
       
-      if (c_isdigit (abmon[i][0]))
-        {
-          memmove (abmon[i] + fill, abmon[i], mon_len[i] + 1);
-          memset (abmon[i], ' ', fill);
-        }
-      else
-        {
-          memset (abmon[i] + mon_len[i], ' ', fill);
-          abmon[i][mon_len[i] + fill] = '\0';
-        }
+      bool align_left = !c_isdigit (abmon[i][0]);
+      int fill_offset = align_left ? mon_len[i] : 0;
+      
+      if (!align_left)
+        memmove (abmon[i] + fill, abmon[i], mon_len[i] + 1);
+      
+      memset (abmon[i] + fill_offset, ' ', fill);
+      abmon[i][mon_len[i] + fill] = '\0';
     }
 
   return true;
@@ -1459,75 +1459,72 @@ static void
 abformat_init (void)
 {
   char const *pb[2];
-  char abmon[12][ABFORMAT_SIZE];
-  
   for (int recent = 0; recent < 2; recent++)
     pb[recent] = first_percent_b (long_time_format[recent]);
-    
-  if (!pb[0] && !pb[1])
+  if (! (pb[0] || pb[1]))
     return;
-    
-  if (!abmon_init (abmon))
+
+  char abmon[12][ABFORMAT_SIZE];
+  if (! abmon_init (abmon))
     return;
-    
+
   for (int recent = 0; recent < 2; recent++)
     {
       char const *fmt = long_time_format[recent];
-      
       for (int i = 0; i < 12; i++)
         {
           char *nfmt = abformat[recent][i];
           int nbytes;
-          
-          if (!pb[recent])
+
+          if (! pb[recent])
             {
               nbytes = snprintf (nfmt, ABFORMAT_SIZE, "%s", fmt);
             }
           else
             {
               int prefix_len = pb[recent] - fmt;
-              
-              if (prefix_len > MIN (ABFORMAT_SIZE, INT_MAX) || prefix_len < 0)
+              if (prefix_len < 0 || prefix_len > ABFORMAT_SIZE - 1)
                 return;
-                
               nbytes = snprintf (nfmt, ABFORMAT_SIZE, "%.*s%s%s",
                                  prefix_len, fmt, abmon[i], pb[recent] + 2);
             }
-            
+
           if (nbytes < 0 || nbytes >= ABFORMAT_SIZE)
             return;
         }
     }
-    
+
   use_abformat = true;
 }
 
 static size_t
 dev_ino_hash (void const *x, size_t table_size)
 {
-  if (!x || table_size == 0)
+  if (x == NULL || table_size == 0) {
     return 0;
-    
+  }
+  
   struct dev_ino const *p = x;
-  return (uintmax_t) p->st_ino % table_size;
+  return (size_t)((uintmax_t) p->st_ino % table_size);
 }
 
 static bool
 dev_ino_compare (void const *x, void const *y)
 {
   if (x == NULL || y == NULL)
-    {
-      return false;
-    }
-  
-  struct dev_ino const *a = x;
-  struct dev_ino const *b = y;
+    return false;
+    
+  const struct dev_ino *a = x;
+  const struct dev_ino *b = y;
   return PSAME_INODE (a, b);
 }
 
-static void dev_ino_free(void *x)
+static void
+dev_ino_free(void *x)
 {
-  free(x);
+    if (x != NULL) {
+        free(x);
+    }
 }
 
 /* Add the device/inode pair (P->st_dev/P->st_ino) to the set of
@@ -1537,14 +1534,19 @@ static void dev_ino_free(void *x)
 static bool
 visit_dir (dev_t dev, ino_t ino)
 {
-  struct dev_ino *ent = xmalloc (sizeof *ent);
+  struct dev_ino *ent;
+  struct dev_ino *ent_from_table;
+
+  ent = xmalloc (sizeof *ent);
   ent->st_ino = ino;
   ent->st_dev = dev;
 
-  struct dev_ino *ent_from_table = hash_insert (active_dir_set, ent);
+  ent_from_table = hash_insert (active_dir_set, ent);
 
-  if (ent_from_table == NULL)
-    xalloc_die ();
+  if (ent_from_table == nullptr)
+    {
+      xalloc_die ();
+    }
 
   if (ent_from_table != ent)
     {
@@ -1558,8 +1560,9 @@ visit_dir (dev_t dev, ino_t ino)
 static void
 free_pending_ent (struct pending *p)
 {
-  if (p == NULL)
+  if (p == NULL) {
     return;
+  }
   
   free (p->name);
   free (p->realname);
@@ -1567,66 +1570,58 @@ free_pending_ent (struct pending *p)
 }
 
 static bool
-is_colored (enum indicator_no type)
+is_colored(enum indicator_no type)
 {
-  size_t len = color_indicator[type].len;
-  if (len == 0)
-    return false;
-  if (len > 2)
-    return true;
-  char const *s = color_indicator[type].string;
-  if (len == 1)
-    return s[0] != '0';
-  return s[0] != '0' || s[1] != '0';
-}
-
-static void restore_default_color(void)
-{
-    put_indicator(&color_indicator[C_LEFT]);
-    put_indicator(&color_indicator[C_RIGHT]);
-}
-
-static void set_normal_color(void)
-{
-    if (!print_with_color || !is_colored(C_NORM)) {
-        return;
-    }
+    size_t len = color_indicator[type].len;
+    if (len == 0)
+        return false;
+    if (len > 2)
+        return true;
     
-    put_indicator(&color_indicator[C_LEFT]);
-    put_indicator(&color_indicator[C_NORM]);
-    put_indicator(&color_indicator[C_RIGHT]);
+    const char *s = color_indicator[type].string;
+    return (s[0] != '0') || (s[len - 1] != '0');
+}
+
+static void
+restore_default_color (void)
+{
+  if (color_indicator != NULL) {
+    put_indicator (&color_indicator[C_LEFT]);
+    put_indicator (&color_indicator[C_RIGHT]);
+  }
+}
+
+static void
+set_normal_color(void)
+{
+    if (print_with_color && is_colored(C_NORM))
+    {
+        put_indicator(&color_indicator[C_LEFT]);
+        put_indicator(&color_indicator[C_NORM]);
+        put_indicator(&color_indicator[C_RIGHT]);
+    }
 }
 
 /* An ordinary signal was received; arrange for the program to exit.  */
 
-static void sighandler(int sig)
+static void
+sighandler (int sig)
 {
-    if (!SA_NOCLDSTOP)
-    {
-        (void)signal(sig, SIG_IGN);
-    }
-    if (interrupt_signal == 0)
-    {
-        interrupt_signal = sig;
-    }
+  if (!SA_NOCLDSTOP)
+    signal (sig, SIG_IGN);
+  if (!interrupt_signal)
+    interrupt_signal = sig;
 }
 
 /* A SIGTSTP was received; arrange for the program to suspend itself.  */
 
-static void stophandler(int sig)
+static void
+stophandler (int sig)
 {
-    if (!SA_NOCLDSTOP)
-    {
-        if (signal(sig, stophandler) == SIG_ERR)
-        {
-            return;
-        }
-    }
-    
-    if (!interrupt_signal)
-    {
-        stop_signal_count++;
-    }
+  if (!SA_NOCLDSTOP)
+    signal (sig, stophandler);
+  if (!interrupt_signal)
+    stop_signal_count++;
 }
 
 /* Process any pending signals.  If signals are caught, this function
@@ -1641,24 +1636,31 @@ process_signals (void)
   while (interrupt_signal || stop_signal_count)
     {
       int sig;
+      int stops;
       sigset_t oldset;
 
       if (used_color)
         restore_default_color ();
       fflush (stdout);
 
-      sigprocmask (SIG_BLOCK, &caught_signals, &oldset);
+      if (sigprocmask (SIG_BLOCK, &caught_signals, &oldset) == -1)
+        continue;
 
       sig = interrupt_signal;
+      stops = stop_signal_count;
 
-      if (stop_signal_count)
+      if (stops)
         {
-          stop_signal_count--;
+          stop_signal_count = stops - 1;
           sig = SIGSTOP;
         }
       else
         {
-          signal (sig, SIG_DFL);
+          if (signal (sig, SIG_DFL) == SIG_ERR)
+            {
+              sigprocmask (SIG_SETMASK, &oldset, NULL);
+              continue;
+            }
         }
 
       raise (sig);
@@ -1694,7 +1696,7 @@ signal_setup (bool init)
     };
   enum { nsigs = ARRAY_CARDINALITY (sig) };
 
-#if !SA_NOCLDSTOP
+#if ! SA_NOCLDSTOP
   static bool caught_sig[nsigs];
 #endif
 
@@ -1709,24 +1711,26 @@ signal_setup (bool init)
 }
 
 static void
-setup_signal_handlers(int const *sig, int nsigs)
+setup_signal_handlers(const int *sig, int nsigs)
 {
+  int j;
+
 #if SA_NOCLDSTOP
   struct sigaction act;
-  
+
   sigemptyset(&caught_signals);
-  
-  for (int j = 0; j < nsigs; j++)
+  for (j = 0; j < nsigs; j++)
     {
-      sigaction(sig[j], NULL, &act);
-      if (act.sa_handler != SIG_IGN)
-        sigaddset(&caught_signals, sig[j]);
+      if (sigaction(sig[j], NULL, &act) == 0 && act.sa_handler != SIG_IGN)
+        {
+          sigaddset(&caught_signals, sig[j]);
+        }
     }
-  
+
   act.sa_mask = caught_signals;
   act.sa_flags = SA_RESTART;
-  
-  for (int j = 0; j < nsigs; j++)
+
+  for (j = 0; j < nsigs; j++)
     {
       if (sigismember(&caught_signals, sig[j]))
         {
@@ -1735,11 +1739,10 @@ setup_signal_handlers(int const *sig, int nsigs)
         }
     }
 #else
-  for (int j = 0; j < nsigs; j++)
+  for (j = 0; j < nsigs; j++)
     {
       void (*old_handler)(int) = signal(sig[j], SIG_IGN);
       caught_sig[j] = (old_handler != SIG_IGN);
-      
       if (caught_sig[j])
         {
           void (*handler)(int) = (sig[j] == SIGTSTP) ? stophandler : sighandler;
@@ -1751,29 +1754,37 @@ setup_signal_handlers(int const *sig, int nsigs)
 }
 
 static void
-restore_signal_handlers(int const *sig, int nsigs)
+restore_signal_handlers(const int *sig, int nsigs)
 {
+  int j;
+
 #if SA_NOCLDSTOP
-  for (int j = 0; j < nsigs; j++)
+  for (j = 0; j < nsigs; j++)
     {
       if (sigismember(&caught_signals, sig[j]))
-        signal(sig[j], SIG_DFL);
+        {
+          signal(sig[j], SIG_DFL);
+        }
     }
 #else
-  for (int j = 0; j < nsigs; j++)
+  for (j = 0; j < nsigs; j++)
     {
       if (caught_sig[j])
-        signal(sig[j], SIG_DFL);
+        {
+          signal(sig[j], SIG_DFL);
+        }
     }
 #endif
 }
 
-static void signal_init(void)
+static void
+signal_init(void)
 {
     signal_setup(true);
 }
 
-static void signal_restore(void)
+static void
+signal_restore(void)
 {
     signal_setup(false);
 }
@@ -1814,26 +1825,9 @@ main (int argc, char **argv)
       tabsize = 0;
     }
 
-  if (directories_first)
-    {
-      check_symlink_mode = true;
-    }
-  else if (print_with_color)
-    {
-      if (is_colored (C_ORPHAN)
-          || (is_colored (C_EXEC) && color_symlink_as_referent)
-          || (is_colored (C_MISSING) && format == long_format))
-        check_symlink_mode = true;
-    }
+  configure_symlink_mode();
 
-  if (dereference == DEREF_UNDEFINED)
-    {
-      dereference = ((immediate_dirs
-                      || indicator_style == classify
-                      || format == long_format)
-                     ? DEREF_NEVER
-                     : DEREF_COMMAND_LINE_SYMLINK_TO_DIR);
-    }
+  configure_dereference();
 
   if (recursive)
     {
@@ -1849,14 +1843,7 @@ main (int argc, char **argv)
 
   localtz = tzalloc (getenv ("TZ"));
 
-  format_needs_stat = ((sort_type == sort_time) || (sort_type == sort_size)
-                       || (format == long_format)
-                       || print_block_size || print_hyperlink || print_scontext);
-  format_needs_type = ((!format_needs_stat)
-                       && (recursive || print_with_color || print_scontext
-                           || directories_first
-                           || (indicator_style != none)));
-  format_needs_capability = print_with_color && is_colored (C_CAP);
+  configure_format_needs();
 
   if (dired)
     {
@@ -1867,7 +1854,6 @@ main (int argc, char **argv)
   if (print_hyperlink)
     {
       file_escape_init ();
-
       hostname = xgethostname ();
       if (!hostname)
         hostname = "";
@@ -1881,21 +1867,7 @@ main (int argc, char **argv)
 
   n_files = argc - i;
 
-  if (n_files <= 0)
-    {
-      if (immediate_dirs)
-        gobble_file (".", directory, NOT_AN_INODE_NUMBER, true, nullptr);
-      else
-        queue_directory (".", nullptr, true);
-    }
-  else
-    {
-      do
-        {
-          gobble_file (argv[i++], unknown, NOT_AN_INODE_NUMBER, true, nullptr);
-        }
-      while (i < argc);
-    }
+  process_command_line_files(argc, argv, i, n_files);
 
   if (cwd_n_used)
     {
@@ -1904,66 +1876,11 @@ main (int argc, char **argv)
         extract_dirs_from_files (nullptr, true);
     }
 
-  if (cwd_n_used)
-    {
-      print_current_files ();
-      if (pending_dirs)
-        dired_outbyte ('\n');
-    }
-  else if (n_files <= 1 && pending_dirs && pending_dirs->next == 0)
-    {
-      print_dir_name = false;
-    }
+  print_files_and_dirs(n_files);
 
-  while (pending_dirs)
-    {
-      thispend = pending_dirs;
-      pending_dirs = pending_dirs->next;
+  process_pending_directories();
 
-      if (LOOP_DETECT)
-        {
-          if (thispend->name == nullptr)
-            {
-              struct dev_ino di = dev_ino_pop ();
-              struct dev_ino *found = hash_remove (active_dir_set, &di);
-              if (false)
-                assert_matching_dev_ino (thispend->realname, di);
-              affirm (found);
-              dev_ino_free (found);
-              free_pending_ent (thispend);
-              continue;
-            }
-        }
-
-      print_dir (thispend->name, thispend->realname,
-                 thispend->command_line_arg);
-
-      free_pending_ent (thispend);
-      print_dir_name = true;
-    }
-
-  if (print_with_color && used_color)
-    {
-      int j;
-
-      if (!(color_indicator[C_LEFT].len == 2
-            && memcmp (color_indicator[C_LEFT].string, "\033[", 2) == 0
-            && color_indicator[C_RIGHT].len == 1
-            && color_indicator[C_RIGHT].string[0] == 'm'))
-        {
-          restore_default_color ();
-        }
-
-      fflush (stdout);
-
-      signal_restore ();
-
-      for (j = stop_signal_count; j; j--)
-        raise (SIGSTOP);
-      j = interrupt_signal;
-      if (j)
-        raise (j);
-    }
+  restore_terminal_state();
 
   if (dired)
     {
@@ -1982,6 +1899,142 @@ main (int argc, char **argv)
   return exit_status;
 }
 
+static void
+configure_symlink_mode(void)
+{
+  if (directories_first)
+    check_symlink_mode = true;
+  else if (print_with_color)
+    {
+      if (is_colored (C_ORPHAN)
+          || (is_colored (C_EXEC) && color_symlink_as_referent)
+          || (is_colored (C_MISSING) && format == long_format))
+        check_symlink_mode = true;
+    }
+}
+
+static void
+configure_dereference(void)
+{
+  if (dereference == DEREF_UNDEFINED)
+    dereference = ((immediate_dirs
+                    || indicator_style == classify
+                    || format == long_format)
+                   ? DEREF_NEVER
+                   : DEREF_COMMAND_LINE_SYMLINK_TO_DIR);
+}
+
+static void
+configure_format_needs(void)
+{
+  format_needs_stat = ((sort_type == sort_time) | (sort_type == sort_size)
+                       | (format == long_format)
+                       | print_block_size | print_hyperlink | print_scontext);
+  format_needs_type = ((! format_needs_stat)
+                       & (recursive | print_with_color | print_scontext
+                          | directories_first
+                          | (indicator_style != none)));
+  format_needs_capability = print_with_color && is_colored (C_CAP);
+}
+
+static void
+process_command_line_files(int argc, char **argv, int start_index, int n_files)
+{
+  if (n_files <= 0)
+    {
+      if (immediate_dirs)
+        gobble_file (".", directory, NOT_AN_INODE_NUMBER, true, nullptr);
+      else
+        queue_directory (".", nullptr, true);
+    }
+  else
+    {
+      int i = start_index;
+      do
+        gobble_file (argv[i++], unknown, NOT_AN_INODE_NUMBER, true, nullptr);
+      while (i < argc);
+    }
+}
+
+static void
+print_files_and_dirs(int n_files)
+{
+  if (cwd_n_used)
+    {
+      print_current_files ();
+      if (pending_dirs)
+        dired_outbyte ('\n');
+    }
+  else if (n_files <= 1 && pending_dirs && pending_dirs->next == 0)
+    print_dir_name = false;
+}
+
+static void
+process_pending_directories(void)
+{
+  struct pending *thispend;
+
+  while (pending_dirs)
+    {
+      thispend = pending_dirs;
+      pending_dirs = pending_dirs->next;
+
+      if (LOOP_DETECT && thispend->name == nullptr)
+        {
+          handle_directory_marker(thispend);
+          continue;
+        }
+
+      print_dir (thispend->name, thispend->realname,
+                 thispend->command_line_arg);
+
+      free_pending_ent (thispend);
+      print_dir_name = true;
+    }
+}
+
+static void
+handle_directory_marker(struct pending *thispend)
+{
+  struct dev_ino di = dev_ino_pop ();
+  struct dev_ino *found = hash_remove (active_dir_set, &di);
+  if (false)
+    assert_matching_dev_ino (thispend->realname, di);
+  affirm (found);
+  dev_ino_free (found);
+  free_pending_ent (thispend);
+}
+
+static void
+restore_terminal_state(void)
+{
+  if (print_with_color && used_color)
+    {
+      if (!(color_indicator[C_LEFT].len == 2
+            && memcmp (color_indicator[C_LEFT].string, "\033[", 2) == 0
+            && color_indicator[C_RIGHT].len == 1
+            && color_indicator[C_RIGHT].string[0] == 'm'))
+        restore_default_color ();
+
+      fflush (stdout);
+      signal_restore ();
+
+      handle_pending_signals();
+    }
+}
+
+static void
+handle_pending_signals(void)
+{
+  int j;
+  
+  for (j = stop_signal_count; j; j--)
+    raise (SIGSTOP);
+  j = interrupt_signal;
+  if (j)
+    raise (j);
+}
+
 /* Return the line length indicated by the value given by SPEC, or -1
    if unsuccessful.  0 means no limit on line length.  */
 
@@ -1989,29 +2042,23 @@ static ptrdiff_t
 decode_line_length (char const *spec)
 {
   uintmax_t val;
-  ptrdiff_t max_val = PTRDIFF_MAX;
-  
-  if (SIZE_MAX < PTRDIFF_MAX)
-    max_val = SIZE_MAX;
+  int result;
 
-  switch (xstrtoumax (spec, NULL, 0, &val, ""))
+  if (!spec)
+    return -1;
+
+  result = xstrtoumax (spec, NULL, 0, &val, "");
+
+  if (result == LONGINT_OK)
     {
-    case LONGINT_OK:
-      if (val <= max_val)
-        return val;
-      return 0;
-
-    case LONGINT_OVERFLOW:
-      return 0;
-
-    case LONGINT_INVALID:
-    case LONGINT_INVALID_SUFFIX_CHAR:
-    case LONGINT_INVALID_SUFFIX_CHAR_WITH_OVERFLOW:
-      return -1;
-
-    default:
-      return -1;
+      ptrdiff_t max_allowed = PTRDIFF_MAX < SIZE_MAX ? PTRDIFF_MAX : SIZE_MAX;
+      return val <= max_allowed ? (ptrdiff_t)val : 0;
     }
+
+  if (result == LONGINT_OVERFLOW)
+    return 0;
+
+  return -1;
 }
 
 /* Return true if standard output is a tty, caching the result.  */
@@ -2021,10 +2068,7 @@ stdout_isatty (void)
 {
   static signed char out_tty = -1;
   if (out_tty < 0)
-    {
-      int result = isatty (STDOUT_FILENO);
-      out_tty = (result != 0) ? 1 : 0;
-    }
+    out_tty = isatty (STDOUT_FILENO) ? 1 : 0;
   return out_tty != 0;
 }
 
@@ -2057,150 +2101,191 @@ decode_switches (int argc, char **argv)
         case 'a':
           ignore_mode = IGNORE_MINIMAL;
           break;
+
         case 'b':
           quoting_style_opt = escape_quoting_style;
           break;
+
         case 'c':
           time_type = time_ctime;
           explicit_time = true;
           break;
+
         case 'd':
           immediate_dirs = true;
           break;
+
         case 'f':
           ignore_mode = IGNORE_MINIMAL;
           sort_opt = sort_none;
           break;
+
         case FILE_TYPE_INDICATOR_OPTION:
           indicator_style = file_type;
           break;
+
         case 'g':
           format_opt = long_format;
           print_owner = false;
           break;
+
         case 'h':
           file_human_output_opts = human_output_opts =
             human_autoscale | human_SI | human_base_1024;
           file_output_block_size = output_block_size = 1;
           break;
+
         case 'i':
           print_inode = true;
           break;
+
         case 'k':
           kibibytes_specified = true;
           break;
+
         case 'l':
           format_opt = long_format;
           break;
+
         case 'm':
           format_opt = with_commas;
           break;
+
         case 'n':
           numeric_ids = true;
           format_opt = long_format;
           break;
+
         case 'o':
           format_opt = long_format;
           print_group = false;
           break;
+
         case 'p':
           indicator_style = slash;
           break;
+
         case 'q':
           hide_control_chars_opt = true;
           break;
+
         case 'r':
           sort_reverse = true;
           break;
+
         case 's':
           print_block_size = true;
           break;
+
         case 't':
           sort_opt = sort_time;
           break;
+
         case 'u':
           time_type = time_atime;
           explicit_time = true;
           break;
+
         case 'v':
           sort_opt = sort_version;
           break;
+
         case 'w':
           width_opt = decode_line_length (optarg);
           if (width_opt < 0)
             error (LS_FAILURE, 0, "%s: %s", _("invalid line width"),
                    quote (optarg));
           break;
+
         case 'x':
           format_opt = horizontal;
           break;
+
         case 'A':
           ignore_mode = IGNORE_DOT_AND_DOTDOT;
           break;
+
         case 'B':
           add_ignore_pattern ("*~");
           add_ignore_pattern (".*~");
           break;
+
         case 'C':
           format_opt = many_per_line;
           break;
+
         case 'D':
           format_opt = long_format;
           print_hyperlink = false;
           dired = true;
           break;
+
         case 'F':
           {
-            int i = optarg ? XARGMATCH ("--classify", optarg, when_args, when_types)
-                           : when_always;
+            int i = optarg ? XARGMATCH ("--classify", optarg, when_args, when_types) : when_always;
             if (i == when_always || (i == when_if_tty && stdout_isatty ()))
               indicator_style = classify;
+            break;
           }
-          break;
+
         case 'G':
           print_group = false;
           break;
+
         case 'H':
           dereference = DEREF_COMMAND_LINE_ARGUMENTS;
           break;
+
         case DEREFERENCE_COMMAND_LINE_SYMLINK_TO_DIR_OPTION:
           dereference = DEREF_COMMAND_LINE_SYMLINK_TO_DIR;
           break;
+
         case 'I':
           add_ignore_pattern (optarg);
           break;
+
         case 'L':
           dereference = DEREF_ALWAYS;
           break;
+
         case 'N':
           quoting_style_opt = literal_quoting_style;
           break;
+
         case 'Q':
           quoting_style_opt = c_quoting_style;
           break;
+
         case 'R':
           recursive = true;
           break;
+
         case 'S':
           sort_opt = sort_size;
           break;
+
         case 'T':
           tabsize_opt = xnumtoumax (optarg, 0, 0, MIN (PTRDIFF_MAX, SIZE_MAX),
                                     "", _("invalid tab size"), LS_FAILURE, 0);
           break;
+
         case 'U':
           sort_opt = sort_none;
           break;
+
         case 'X':
           sort_opt = sort_extension;
           break;
+
         case '1':
           if (format_opt != long_format)
             format_opt = one_per_line;
           break;
+
         case AUTHOR_OPTION:
           print_author = true;
           break;
+
         case HIDE_OPTION:
           {
             struct ignore_pattern *hide = xmalloc (sizeof *hide);
@@ -2209,56 +2294,63 @@ decode_switches (int argc, char **argv)
             hide_patterns = hide;
           }
           break;
+
         case SORT_OPTION:
           sort_opt = XARGMATCH ("--sort", optarg, sort_args, sort_types);
           break;
+
         case GROUP_DIRECTORIES_FIRST_OPTION:
           directories_first = true;
           break;
+
         case TIME_OPTION:
           time_type = XARGMATCH ("--time", optarg, time_args, time_types);
           explicit_time = true;
           break;
+
         case FORMAT_OPTION:
-          format_opt = XARGMATCH ("--format", optarg, format_args,
-                                  format_types);
+          format_opt = XARGMATCH ("--format", optarg, format_args, format_types);
           break;
+
         case FULL_TIME_OPTION:
           format_opt = long_format;
           time_style_option = "full-iso";
           break;
+
         case COLOR_OPTION:
           {
-            int i = optarg ? XARGMATCH ("--color", optarg, when_args, when_types)
-                           : when_always;
-            print_with_color = (i == when_always
-                                || (i == when_if_tty && stdout_isatty ()));
+            int i = optarg ? XARGMATCH ("--color", optarg, when_args, when_types) : when_always;
+            print_with_color = (i == when_always || (i == when_if_tty && stdout_isatty ()));
+            break;
           }
-          break;
+
         case HYPERLINK_OPTION:
           {
-            int i = optarg ? XARGMATCH ("--hyperlink", optarg, when_args, when_types)
-                           : when_always;
-            print_hyperlink = (i == when_always
-                               || (i == when_if_tty && stdout_isatty ()));
+            int i = optarg ? XARGMATCH ("--hyperlink", optarg, when_args, when_types) : when_always;
+            print_hyperlink = (i == when_always || (i == when_if_tty && stdout_isatty ()));
+            break;
           }
-          break;
+
         case INDICATOR_STYLE_OPTION:
           indicator_style = XARGMATCH ("--indicator-style", optarg,
                                        indicator_style_args,
                                        indicator_style_types);
           break;
+
         case QUOTING_STYLE_OPTION:
           quoting_style_opt = XARGMATCH ("--quoting-style", optarg,
                                          quoting_style_args,
                                          quoting_style_vals);
           break;
+
         case TIME_STYLE_OPTION:
           time_style_option = optarg;
           break;
+
         case SHOW_CONTROL_CHARS_OPTION:
           hide_control_chars_opt = false;
           break;
+
         case BLOCK_SIZE_OPTION:
           {
             enum strtol_error e = human_options (optarg, &human_output_opts,
@@ -2269,14 +2361,17 @@ decode_switches (int argc, char **argv)
             file_output_block_size = output_block_size;
           }
           break;
+
         case SI_OPTION:
           file_human_output_opts = human_output_opts =
             human_autoscale | human_SI;
           file_output_block_size = output_block_size = 1;
           break;
+
         case 'Z':
           print_scontext = true;
           break;
+
         case ZERO_OPTION:
           eolbyte = 0;
           hide_control_chars_opt = false;
@@ -2285,18 +2380,20 @@ decode_switches (int argc, char **argv)
           print_with_color = false;
           quoting_style_opt = literal_quoting_style;
           break;
+
         case_GETOPT_HELP_CHAR;
+
         case_GETOPT_VERSION_CHAR (PROGRAM_NAME, AUTHORS);
+
         default:
           usage (LS_FAILURE);
         }
     }
 
-  if (!output_block_size)
+  if (! output_block_size)
     {
       char const *ls_block_size = getenv ("LS_BLOCK_SIZE");
-      human_options (ls_block_size,
-                     &human_output_opts, &output_block_size);
+      human_options (ls_block_size, &human_output_opts, &output_block_size);
       if (ls_block_size || getenv ("BLOCK_SIZE"))
         {
           file_human_output_opts = human_output_opts;
@@ -2309,9 +2406,8 @@ decode_switches (int argc, char **argv)
         }
     }
 
-  format = (0 <= format_opt ? format_opt
-            : ls_mode == LS_LS ? (stdout_isatty ()
-                                  ? many_per_line : one_per_line)
+  format = (format_opt >= 0 ? format_opt
+            : ls_mode == LS_LS ? (stdout_isatty () ? many_per_line : one_per_line)
             : ls_mode == LS_MULTI_COL ? many_per_line
             : long_format);
 
@@ -2350,7 +2446,7 @@ decode_switches (int argc, char **argv)
 
   if (format == many_per_line || format == horizontal || format == with_commas)
     {
-      if (0 <= tabsize_opt)
+      if (tabsize_opt >= 0)
         tabsize = tabsize_opt;
       else
         {
@@ -2382,7 +2478,7 @@ decode_switches (int argc, char **argv)
     qs = (ls_mode == LS_LS
           ? (stdout_isatty () ? shell_escape_quoting_style : -1)
           : escape_quoting_style);
-  if (0 <= qs)
+  if (qs >= 0)
     set_quoting_style (NULL, qs);
   qs = get_quoting_style (NULL);
   align_variable_outer_quotes
@@ -2409,7 +2505,7 @@ decode_switches (int argc, char **argv)
   if (eolbyte < dired)
     error (LS_FAILURE, 0, _("--dired and --zero are incompatible"));
 
-  sort_type = (0 <= sort_opt ? sort_opt
+  sort_type = (sort_opt >= 0 ? sort_opt
                : (format != long_format && explicit_time)
                ? sort_time : sort_name);
 
@@ -2418,16 +2514,16 @@ decode_switches (int argc, char **argv)
       char const *style = time_style_option;
       static char const posix_prefix[] = "posix-";
 
-      if (!style)
+      if (! style)
         {
           style = getenv ("TIME_STYLE");
-          if (!style)
+          if (! style)
             style = "locale";
         }
 
       while (STREQ_LEN (style, posix_prefix, sizeof posix_prefix - 1))
         {
-          if (!hard_locale (LC_TIME))
+          if (! hard_locale (LC_TIME))
             return optind;
           style += sizeof posix_prefix - 1;
         }
@@ -2459,13 +2555,16 @@ decode_switches (int argc, char **argv)
               long_time_format[0] = long_time_format[1] =
                 "%Y-%m-%d %H:%M:%S.%N %z";
               break;
+
             case long_iso_time_style:
               long_time_format[0] = long_time_format[1] = "%Y-%m-%d %H:%M";
               break;
+
             case iso_time_style:
               long_time_format[0] = "%Y-%m-%d ";
               long_time_format[1] = "%m-%d %H:%M";
               break;
+
             case locale_time_style:
               if (hard_locale (LC_TIME))
                 {
@@ -2475,6 +2574,7 @@ decode_switches (int argc, char **argv)
                 }
             }
         }
+
       abformat_init ();
     }
 
@@ -2498,6 +2598,10 @@ static bool
 get_funky_string (char **dest, char const **src, bool equals_end,
                   size_t *output_count)
 {
+  if (!dest || !src || !*src || !*dest || !output_count) {
+    return false;
+  }
+
   char num = 0;
   size_t count = 0;
   enum {
@@ -2506,139 +2610,102 @@ get_funky_string (char **dest, char const **src, bool equals_end,
   char const *p = *src;
   char *q = *dest;
 
-  if (!dest || !src || !output_count || !*dest || !*src)
-    return false;
-
-  while (state < ST_END)
-    {
-      switch (state)
-        {
-        case ST_GND:
-          if (*p == ':' || *p == '\0')
-            state = ST_END;
-          else if (*p == '\\')
-            {
-              state = ST_BACKSLASH;
-              ++p;
-            }
-          else if (*p == '^')
-            {
-              state = ST_CARET;
-              ++p;
-            }
-          else if (*p == '=' && equals_end)
-            state = ST_END;
-          else
-            {
-              *(q++) = *(p++);
-              ++count;
-            }
-          break;
-
-        case ST_BACKSLASH:
-          if (*p >= '0' && *p <= '7')
-            {
-              state = ST_OCTAL;
-              num = *p - '0';
-              ++p;
-            }
-          else if (*p == 'x' || *p == 'X')
-            {
-              state = ST_HEX;
-              num = 0;
-              ++p;
-            }
-          else if (*p == '\0')
-            {
-              state = ST_ERROR;
-            }
-          else
-            {
-              switch (*p)
-                {
-                case 'a': num = '\a'; break;
-                case 'b': num = '\b'; break;
-                case 'e': num = 27; break;
-                case 'f': num = '\f'; break;
-                case 'n': num = '\n'; break;
-                case 'r': num = '\r'; break;
-                case 't': num = '\t'; break;
-                case 'v': num = '\v'; break;
-                case '?': num = 127; break;
-                case '_': num = ' '; break;
-                default: num = *p; break;
-                }
-              *(q++) = num;
-              ++count;
-              state = ST_GND;
-              ++p;
-            }
-          break;
-
-        case ST_OCTAL:
-          if (*p >= '0' && *p <= '7')
-            {
-              num = (num << 3) + (*p - '0');
-              ++p;
-            }
-          else
-            {
-              *(q++) = num;
-              ++count;
-              state = ST_GND;
-            }
-          break;
-
-        case ST_HEX:
-          if (*p >= '0' && *p <= '9')
-            {
-              num = (num << 4) + (*p - '0');
-              ++p;
-            }
-          else if (*p >= 'a' && *p <= 'f')
-            {
-              num = (num << 4) + (*p - 'a' + 10);
-              ++p;
-            }
-          else if (*p >= 'A' && *p <= 'F')
-            {
-              num = (num << 4) + (*p - 'A' + 10);
-              ++p;
-            }
-          else
-            {
-              *(q++) = num;
-              ++count;
-              state = ST_GND;
-            }
-          break;
-
-        case ST_CARET:
-          if (*p >= '@' && *p <= '~')
-            {
-              *(q++) = *p & 037;
-              ++p;
-              ++count;
-              state = ST_GND;
-            }
-          else if (*p == '?')
-            {
-              *(q++) = 127;
-              ++p;
-              ++count;
-              state = ST_GND;
-            }
-          else
-            {
-              state = ST_ERROR;
-            }
-          break;
-
-        default:
-          state = ST_ERROR;
-          break;
+  while (state < ST_END) {
+    switch (state) {
+      case ST_GND:
+        if (*p == ':' || *p == '\0') {
+          state = ST_END;
+        } else if (*p == '\\') {
+          state = ST_BACKSLASH;
+          ++p;
+        } else if (*p == '^') {
+          state = ST_CARET;
+          ++p;
+        } else if (*p == '=' && equals_end) {
+          state = ST_END;
+        } else {
+          *(q++) = *(p++);
+          ++count;
         }
+        break;
+
+      case ST_BACKSLASH:
+        if (*p >= '0' && *p <= '7') {
+          state = ST_OCTAL;
+          num = *p - '0';
+        } else if (*p == 'x' || *p == 'X') {
+          state = ST_HEX;
+          num = 0;
+        } else if (*p == '\0') {
+          state = ST_ERROR;
+        } else {
+          switch (*p) {
+            case 'a': num = '\a'; break;
+            case 'b': num = '\b'; break;
+            case 'e': num = 27; break;
+            case 'f': num = '\f'; break;
+            case 'n': num = '\n'; break;
+            case 'r': num = '\r'; break;
+            case 't': num = '\t'; break;
+            case 'v': num = '\v'; break;
+            case '?': num = 127; break;
+            case '_': num = ' '; break;
+            default: num = *p; break;
+          }
+          *(q++) = num;
+          ++count;
+          state = ST_GND;
+        }
+        if (*p != '\0') {
+          ++p;
+        }
+        break;
+
+      case ST_OCTAL:
+        if (*p >= '0' && *p <= '7') {
+          num = (num << 3) + (*(p++) - '0');
+        } else {
+          *(q++) = num;
+          ++count;
+          state = ST_GND;
+        }
+        break;
+
+      case ST_HEX:
+        if (*p >= '0' && *p <= '9') {
+          num = (num << 4) + (*(p++) - '0');
+        } else if (*p >= 'a' && *p <= 'f') {
+          num = (num << 4) + (*(p++) - 'a') + 10;
+        } else if (*p >= 'A' && *p <= 'F') {
+          num = (num << 4) + (*(p++) - 'A') + 10;
+        } else {
+          *(q++) = num;
+          ++count;
+          state = ST_GND;
+        }
+        break;
+
+      case ST_CARET:
+        state = ST_GND;
+        if (*p >= '@' && *p <= '~') {
+          *(q++) = *(p++) & 037;
+          ++count;
+        } else if (*p == '?') {
+          *(q++) = 127;
+          ++p;
+          ++count;
+        } else {
+          state = ST_ERROR;
+        }
+        break;
+
+      case ST_END:
+      case ST_ERROR:
+      default:
+        state = ST_ERROR;
+        break;
     }
+  }
 
   *dest = q;
   *src = p;
@@ -2661,203 +2728,199 @@ enum parse_state
 /* Check if the content of TERM is a valid name in dircolors.  */
 
 static bool
-known_term_type (void)
+known_term_type(void)
 {
-  char const *term = getenv ("TERM");
-  if (term == NULL || term[0] == '\0')
-    return false;
+    const char *term = getenv("TERM");
+    if (!term || !*term)
+        return false;
 
-  char const *line = G_line;
-  size_t offset = 0;
-  size_t line_size = sizeof (G_line);
-  
-  while (offset < line_size)
+    const char *line = G_line;
+    const char *end = G_line + sizeof(G_line);
+    
+    while (line < end)
     {
-      if (STRNCMP_LIT (line, "TERM ") == 0)
+        size_t line_len = strnlen(line, end - line);
+        if (line_len == 0 || line + line_len >= end)
+            break;
+            
+        if (line_len > 5 && STRNCMP_LIT(line, "TERM ") == 0)
         {
-          if (fnmatch (line + 5, term, 0) == 0)
-            return true;
+            if (fnmatch(line + 5, term, 0) == 0)
+                return true;
         }
-      
-      size_t len = strlen (line);
-      if (len >= line_size - offset)
-        break;
         
-      offset += len + 1;
-      line = G_line + offset;
+        line += line_len + 1;
     }
 
-  return false;
+    return false;
 }
 
 static void
-parse_ls_color (void)
+parse_ls_color(void)
 {
-  char const *p;
-  char *buf;
-  char label0, label1;
-  struct color_ext_type *ext;
-
-  p = getenv ("LS_COLORS");
-  if (p == nullptr || *p == '\0')
+    const char *p = getenv("LS_COLORS");
+    
+    if (!p || *p == '\0')
     {
-      char const *colorterm = getenv ("COLORTERM");
-      if (! (colorterm && *colorterm) && ! known_term_type ())
-        print_with_color = false;
-      return;
+        const char *colorterm = getenv("COLORTERM");
+        if (!(colorterm && *colorterm) && !known_term_type())
+            print_with_color = false;
+        return;
     }
 
-  ext = nullptr;
-  buf = color_buf = xstrdup (p);
-  enum parse_state state = PS_START;
+    color_buf = xstrdup(p);
+    char *buf = color_buf;
+    struct color_ext_type *ext = NULL;
+    char label0, label1;
+    enum parse_state state = PS_START;
+    bool parse_success = true;
 
-  while (state != PS_DONE && state != PS_FAIL)
+    while (state != PS_DONE && parse_success)
     {
-      if (state == PS_START)
+        switch (state)
         {
-          if (*p == ':')
+        case PS_START:
+            if (*p == ':')
             {
-              ++p;
+                ++p;
             }
-          else if (*p == '*')
+            else if (*p == '*')
             {
-              ext = xmalloc (sizeof *ext);
-              ext->next = color_ext_list;
-              color_ext_list = ext;
-              ext->exact_match = false;
-              ++p;
-              ext->ext.string = buf;
-              state = get_funky_string (&buf, &p, true, &ext->ext.len)
-                      ? PS_4 : PS_FAIL;
+                ext = xmalloc(sizeof(*ext));
+                ext->next = color_ext_list;
+                color_ext_list = ext;
+                ext->exact_match = false;
+                ++p;
+                ext->ext.string = buf;
+                state = get_funky_string(&buf, &p, true, &ext->ext.len) ? PS_4 : PS_FAIL;
             }
-          else if (*p == '\0')
+            else if (*p == '\0')
             {
-              state = PS_DONE;
+                state = PS_DONE;
             }
-          else
+            else
             {
-              label0 = *p++;
-              state = PS_2;
+                label0 = *p++;
+                state = PS_2;
             }
-        }
-      else if (state == PS_2)
-        {
-          if (*p)
+            break;
+
+        case PS_2:
+            if (*p)
             {
-              label1 = *p++;
-              state = PS_3;
+                label1 = *p++;
+                state = PS_3;
             }
-          else
+            else
             {
-              state = PS_FAIL;
+                state = PS_FAIL;
             }
-        }
-      else if (state == PS_3)
-        {
-          if (*p++ != '=')
+            break;
+
+        case PS_3:
+            if (*p++ == '=')
             {
-              state = PS_FAIL;
-            }
-          else
-            {
-              state = PS_FAIL;
-              for (int i = 0; i < ARRAY_CARDINALITY (indicator_name); i++)
+                bool found = false;
+                for (int i = 0; i < ARRAY_CARDINALITY(indicator_name); i++)
                 {
-                  if (label0 == indicator_name[i][0] &&
-                      label1 == indicator_name[i][1])
+                    if (label0 == indicator_name[i][0] && label1 == indicator_name[i][1])
                     {
-                      color_indicator[i].string = buf;
-                      state = get_funky_string (&buf, &p, false,
-                                               &color_indicator[i].len)
-                              ? PS_START : PS_FAIL;
-                      break;
+                        color_indicator[i].string = buf;
+                        state = get_funky_string(&buf, &p, false, &color_indicator[i].len) ? PS_START : PS_FAIL;
+                        found = true;
+                        break;
                     }
                 }
-              if (state == PS_FAIL)
+                if (!found)
                 {
-                  error (0, 0, _("unrecognized prefix: %s"),
-                         quote ((char []) {label0, label1, '\0'}));
+                    error(0, 0, _("unrecognized prefix: %s"),
+                          quote((char[]){label0, label1, '\0'}));
+                    state = PS_FAIL;
                 }
             }
-        }
-      else if (state == PS_4)
-        {
-          if (*p++ != '=')
+            else
             {
-              state = PS_FAIL;
+                state = PS_FAIL;
             }
-          else
+            break;
+
+        case PS_4:
+            if (*p++ == '=')
             {
-              ext->seq.string = buf;
-              state = get_funky_string (&buf, &p, false, &ext->seq.len)
-                      ? PS_START : PS_FAIL;
+                ext->seq.string = buf;
+                state = get_funky_string(&buf, &p, false, &ext->seq.len) ? PS_START : PS_FAIL;
             }
+            else
+            {
+                state = PS_FAIL;
+            }
+            break;
+
+        case PS_FAIL:
+            parse_success = false;
+            break;
+
+        case PS_DONE:
+        default:
+            affirm(false);
         }
     }
 
-  if (state == PS_FAIL)
+    if (!parse_success)
     {
-      struct color_ext_type *e = color_ext_list;
-      struct color_ext_type *e2;
-      
-      error (0, 0,
-             _("unparsable value for LS_COLORS environment variable"));
-      free (color_buf);
-      
-      while (e != nullptr)
+        error(0, 0, _("unparsable value for LS_COLORS environment variable"));
+        free(color_buf);
+        
+        struct color_ext_type *current = color_ext_list;
+        while (current != NULL)
         {
-          e2 = e;
-          e = e->next;
-          free (e2);
+            struct color_ext_type *next = current->next;
+            free(current);
+            current = next;
         }
-      color_ext_list = nullptr;
-      print_with_color = false;
-      return;
+        
+        print_with_color = false;
     }
-
-  struct color_ext_type *e1;
-  for (e1 = color_ext_list; e1 != nullptr; e1 = e1->next)
+    else
     {
-      struct color_ext_type *e2;
-      bool case_ignored = false;
-
-      for (e2 = e1->next; e2 != nullptr; e2 = e2->next)
+        for (struct color_ext_type *e1 = color_ext_list; e1 != NULL; e1 = e1->next)
         {
-          if (e2->ext.len >= SIZE_MAX || e1->ext.len != e2->ext.len)
-            continue;
-
-          if (memcmp (e1->ext.string, e2->ext.string, e1->ext.len) == 0)
+            bool case_ignored = false;
+            
+            for (struct color_ext_type *e2 = e1->next; e2 != NULL; e2 = e2->next)
             {
-              e2->ext.len = SIZE_MAX;
-            }
-          else if (c_strncasecmp (e1->ext.string, e2->ext.string,
-                                  e1->ext.len) == 0)
-            {
-              if (case_ignored)
+                if (e2->ext.len < SIZE_MAX && e1->ext.len == e2->ext.len)
                 {
-                  e2->ext.len = SIZE_MAX;
-                }
-              else if (e1->seq.len == e2->seq.len &&
-                       memcmp (e1->seq.string, e2->seq.string,
-                              e1->seq.len) == 0)
-                {
-                  e2->ext.len = SIZE_MAX;
-                  case_ignored = true;
-                }
-              else
-                {
-                  e1->exact_match = true;
-                  e2->exact_match = true;
+                    if (memcmp(e1->ext.string, e2->ext.string, e1->ext.len) == 0)
+                    {
+                        e2->ext.len = SIZE_MAX;
+                    }
+                    else if (c_strncasecmp(e1->ext.string, e2->ext.string, e1->ext.len) == 0)
+                    {
+                        if (case_ignored)
+                        {
+                            e2->ext.len = SIZE_MAX;
+                        }
+                        else if (e1->seq.len == e2->seq.len &&
+                                memcmp(e1->seq.string, e2->seq.string, e1->seq.len) == 0)
+                        {
+                            e2->ext.len = SIZE_MAX;
+                            case_ignored = true;
+                        }
+                        else
+                        {
+                            e1->exact_match = true;
+                            e2->exact_match = true;
+                        }
+                    }
                 }
             }
         }
     }
 
-  if (color_indicator[C_LINK].len == 6 &&
-      !STRNCMP_LIT (color_indicator[C_LINK].string, "target"))
-    {
-      color_symlink_as_referent = true;
-    }
+    if (color_indicator[C_LINK].len == 6 &&
+        !STRNCMP_LIT(color_indicator[C_LINK].string, "target"))
+        color_symlink_as_referent = true;
 }
 
 /* Return the quoting style specified by the environment variable
@@ -2869,7 +2932,7 @@ getenv_quoting_style (void)
   char const *q_style = getenv ("QUOTING_STYLE");
   if (!q_style)
     return -1;
-  
+    
   int i = ARGMATCH (q_style, quoting_style_args, quoting_style_vals);
   if (i < 0)
     {
@@ -2879,7 +2942,7 @@ getenv_quoting_style (void)
              quote (q_style));
       return -1;
     }
-  
+    
   return quoting_style_vals[i];
 }
 
@@ -2889,12 +2952,9 @@ getenv_quoting_style (void)
 static void
 set_exit_status (bool serious)
 {
-  if (serious)
-  {
+  if (serious) {
     exit_status = LS_FAILURE;
-  }
-  else if (exit_status == EXIT_SUCCESS)
-  {
+  } else if (exit_status == EXIT_SUCCESS) {
     exit_status = LS_MINOR_PROBLEM;
   }
 }
@@ -2904,13 +2964,13 @@ set_exit_status (bool serious)
    errno is set appropriately for the failure.  */
 
 static void
-file_failure (bool serious, char const *message, char const *file)
+file_failure (bool serious, const char *message, const char *file)
 {
-  if (message == NULL || file == NULL)
-    return;
-    
-  error (0, errno, message, quoteaf (file));
-  set_exit_status (serious);
+  int saved_errno = errno;
+  if (message && file) {
+    error (0, saved_errno, message, quoteaf (file));
+    set_exit_status (serious);
+  }
 }
 
 /* Request that the directory named NAME have its contents listed later.
@@ -2927,9 +2987,6 @@ static void
 queue_directory (char const *name, char const *realname, bool command_line_arg)
 {
   struct pending *new = xmalloc (sizeof *new);
-  if (!new)
-    return;
-  
   new->realname = realname ? xstrdup (realname) : NULL;
   new->name = name ? xstrdup (name) : NULL;
   new->command_line_arg = command_line_arg;
@@ -2960,21 +3017,15 @@ print_dir (char const *name, char const *realname, bool command_line_arg)
 
   if (LOOP_DETECT)
     {
-      if (!check_directory_loop (dirp, name, command_line_arg))
-        {
-          closedir (dirp);
-          return;
-        }
+      if (handle_loop_detection(dirp, name, command_line_arg))
+        return;
     }
 
   clear_files ();
 
-  if (recursive || print_dir_name)
-    {
-      print_directory_header (name, realname, &first, command_line_arg);
-    }
+  handle_directory_header(name, realname, command_line_arg, &first);
 
-  total_blocks = process_directory_entries (dirp, name, command_line_arg);
+  read_directory_entries(dirp, name, command_line_arg, &total_blocks);
 
   if (closedir (dirp) != 0)
     {
@@ -2986,17 +3037,14 @@ print_dir (char const *name, char const *realname, bool command_line_arg)
   if (recursive)
     extract_dirs_from_files (name, false);
 
-  if (format == long_format || print_block_size)
-    {
-      print_total_blocks (total_blocks);
-    }
+  print_total_blocks(total_blocks);
 
   if (cwd_n_used)
     print_current_files ();
 }
 
 static bool
-check_directory_loop (DIR *dirp, char const *name, bool command_line_arg)
+handle_loop_detection(DIR *dirp, char const *name, bool command_line_arg)
 {
   struct stat dir_stat;
   int fd = dirfd (dirp);
@@ -3007,31 +3055,35 @@ check_directory_loop (DIR *dirp, char const *name, bool command_line_arg)
     {
       file_failure (command_line_arg,
                     _("cannot determine device and inode of %s"), name);
-      return false;
+      closedir (dirp);
+      return true;
     }
 
   if (visit_dir (dir_stat.st_dev, dir_stat.st_ino))
     {
       error (0, 0, _("%s: not listing already-listed directory"),
              quotef (name));
+      closedir (dirp);
       set_exit_status (true);
-      return false;
+      return true;
     }
 
   dev_ino_push (dir_stat.st_dev, dir_stat.st_ino);
-  return true;
+  return false;
 }
 
 static void
-print_directory_header (char const *name, char const *realname, 
-                        bool *first, bool command_line_arg)
+handle_directory_header(char const *name, char const *realname, bool command_line_arg, bool *first)
 {
+  if (!(recursive || print_dir_name))
+    return;
+
   if (!*first)
     dired_outbyte ('\n');
   *first = false;
   dired_indent ();
 
-  char *absolute_name = nullptr;
+  char *absolute_name = NULL;
   if (print_hyperlink)
     {
       absolute_name = canonicalize_filename_mode (name, CAN_MISSING);
@@ -3041,87 +3093,87 @@ print_directory_header (char const *name, char const *realname,
     }
   
   quote_name (realname ? realname : name, dirname_quoting_options, -1,
-              nullptr, true, &subdired_obstack, absolute_name);
+              NULL, true, &subdired_obstack, absolute_name);
 
   free (absolute_name);
   dired_outstring (":\n");
 }
 
-static uintmax_t
-process_directory_entries (DIR *dirp, char const *name, bool command_line_arg)
+static void
+read_directory_entries(DIR *dirp, char const *name, bool command_line_arg, uintmax_t *total_blocks)
 {
   struct dirent *next;
-  uintmax_t total_blocks = 0;
-
+  
   while (true)
     {
       errno = 0;
       next = readdir (dirp);
-      
-      if (!next)
+      if (next)
         {
-          if (!handle_readdir_error (errno, command_line_arg, name))
+          if (! file_ignored (next->d_name))
+            {
+              enum filetype type = get_file_type(next);
+              *total_blocks += gobble_file (next->d_name, type,
+                                           RELIABLE_D_INO (next),
+                                           false, name);
+
+              if (should_print_immediately())
+                {
+                  sort_files ();
+                  print_current_files ();
+                  clear_files ();
+                }
+            }
+        }
+      else
+        {
+          if (handle_readdir_error(name, command_line_arg))
             break;
-          continue;
         }
 
-      if (file_ignored (next->d_name))
-        continue;
-
-      total_blocks += process_single_entry (next, name);
-      
-      maybe_print_immediately ();
       process_signals ();
     }
+}
 
-  return total_blocks;
+static enum filetype
+get_file_type(struct dirent *entry)
+{
+#if HAVE_STRUCT_DIRENT_D_TYPE
+  return d_type_filetype[entry->d_type];
+#else
+  return unknown;
+#endif
 }
 
 static bool
-handle_readdir_error (int err, bool command_line_arg, char const *name)
+should_print_immediately(void)
 {
+  return format == one_per_line && sort_type == sort_none
+         && !print_block_size && !recursive;
+}
+
+static bool
+handle_readdir_error(char const *name, bool command_line_arg)
+{
+  int err = errno;
   if (err == 0)
-    return false;
-    
+    return true;
+
 #if ! (2 < __GLIBC__ + (3 <= __GLIBC_MINOR__))
   if (err == ENOENT)
-    return false;
+    return true;
 #endif
 
   file_failure (command_line_arg, _("reading directory %s"), name);
-  return err == EOVERFLOW;
-}
-
-static uintmax_t
-process_single_entry (struct dirent *entry, char const *dir_name)
-{
-  enum filetype type;
-#if HAVE_STRUCT_DIRENT_D_TYPE
-  type = d_type_filetype[entry->d_type];
-#else
-  type = unknown;
-#endif
-  
-  return gobble_file (entry->d_name, type,
-                     RELIABLE_D_INO (entry),
-                     false, dir_name);
+  return err != EOVERFLOW;
 }
 
 static void
-maybe_print_immediately (void)
+print_total_blocks(uintmax_t total_blocks)
 {
-  if (format == one_per_line && sort_type == sort_none
-      && !print_block_size && !recursive)
-    {
-      sort_files ();
-      print_current_files ();
-      clear_files ();
-    }
-}
+  if (!(format == long_format || print_block_size))
+    return;
 
-static void
-print_total_blocks (uintmax_t total_blocks)
-{
   char buf[LONGEST_HUMAN_READABLE + 3];
   char *p = human_readable (total_blocks, buf + 1, human_output_opts,
                             ST_NBLOCKSIZE, output_block_size);
@@ -3141,12 +3193,14 @@ add_ignore_pattern (char const *pattern)
 {
   struct ignore_pattern *ignore;
 
-  if (pattern == NULL)
+  if (!pattern) {
     return;
+  }
 
   ignore = xmalloc (sizeof *ignore);
-  if (ignore == NULL)
+  if (!ignore) {
     return;
+  }
 
   ignore->pattern = pattern;
   ignore->next = ignore_patterns;
@@ -3156,47 +3210,39 @@ add_ignore_pattern (char const *pattern)
 /* Return true if one of the PATTERNS matches FILE.  */
 
 static bool
-patterns_match (struct ignore_pattern const *patterns, char const *file)
+patterns_match(const struct ignore_pattern *patterns, const char *file)
 {
-  if (!patterns || !file)
-    return false;
-    
-  struct ignore_pattern const *p = patterns;
-  while (p)
-    {
-      if (p->pattern && fnmatch (p->pattern, file, FNM_PERIOD) == 0)
-        return true;
-      p = p->next;
+    if (!patterns || !file) {
+        return false;
     }
-  return false;
+    
+    for (const struct ignore_pattern *p = patterns; p != NULL; p = p->next) {
+        if (fnmatch(p->pattern, file, FNM_PERIOD) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Return true if FILE should be ignored.  */
 
 static bool
-file_ignored (char const *name)
+file_ignored(char const *name)
 {
-  if (name == NULL) {
-    return false;
-  }
-
   if (ignore_mode != IGNORE_MINIMAL && name[0] == '.') {
     if (ignore_mode == IGNORE_DEFAULT) {
       return true;
     }
-    if (name[1] == '\0') {
-      return true;
-    }
-    if (name[1] == '.' && name[2] == '\0') {
+    if (name[1] == '\0' || (name[1] == '.' && name[2] == '\0')) {
       return true;
     }
   }
-
-  if (ignore_mode == IGNORE_DEFAULT && patterns_match (hide_patterns, name)) {
+  
+  if (ignore_mode == IGNORE_DEFAULT && patterns_match(hide_patterns, name)) {
     return true;
   }
-
-  return patterns_match (ignore_patterns, name);
+  
+  return patterns_match(ignore_patterns, name);
 }
 
 /* POSIX requires that a file size be printed without a sign, even
@@ -3236,10 +3282,12 @@ has_capability (char const *name)
   return has_cap;
 }
 #else
-static bool has_capability(MAYBE_UNUSED char const *name)
+static bool
+has_capability(const char *name)
 {
-    errno = ENOTSUP;
-    return false;
+  (void)name;
+  errno = ENOTSUP;
+  return false;
 }
 #endif
 
@@ -3252,18 +3300,19 @@ free_ent (struct fileinfo *f)
     return;
     
   free (f->name);
+  f->name = NULL;
+  
   free (f->linkname);
+  f->linkname = NULL;
+  
   free (f->absolute_name);
+  f->absolute_name = NULL;
   
   if (f->scontext != UNKNOWN_SECURITY_CONTEXT)
     {
       aclinfo_scontext_free (f->scontext);
       f->scontext = UNKNOWN_SECURITY_CONTEXT;
     }
-    
-  f->name = NULL;
-  f->linkname = NULL;
-  f->absolute_name = NULL;
 }
 
 /* Empty the table of files.  */
@@ -3272,8 +3321,10 @@ clear_files (void)
 {
   for (idx_t i = 0; i < cwd_n_used; i++)
     {
-      struct fileinfo *f = sorted_file[i];
-      free_ent (f);
+      if (sorted_file[i] != NULL)
+        {
+          free_ent (sorted_file[i]);
+        }
     }
 
   cwd_n_used = 0;
@@ -3303,40 +3354,33 @@ file_has_aclinfo_cache (char const *file, struct fileinfo *f,
   static int unsupported_scontext_err;
   static dev_t unsupported_device;
 
-  if (f->stat_ok && unsupported_scontext
-      && f->stat.st_dev == unsupported_device)
-    {
-      ai->buf = ai->u.__gl_acl_ch;
-      ai->size = 0;
-      ai->scontext = unsupported_scontext;
-      ai->scontext_err = unsupported_scontext_err;
-      errno = ENOTSUP;
-      return unsupported_return;
-    }
+  if (!file || !f || !ai) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  if (f->stat_ok && unsupported_scontext && f->stat.st_dev == unsupported_device) {
+    ai->buf = ai->u.__gl_acl_ch;
+    ai->size = 0;
+    ai->scontext = unsupported_scontext;
+    ai->scontext_err = unsupported_scontext_err;
+    errno = ENOTSUP;
+    return unsupported_return;
+  }
 
   errno = 0;
   int n = file_has_aclinfo (file, ai, flags);
   int err = errno;
   
-  if (!f->stat_ok || n > 0)
-    {
-      return n;
-    }
+  int is_scontext_err_valid = (flags & ACL_GET_SCONTEXT) && acl_errno_valid (ai->scontext_err);
+  int should_cache = f->stat_ok && n <= 0 && !acl_errno_valid (err) && !is_scontext_err_valid;
   
-  if (acl_errno_valid (err))
-    {
-      return n;
-    }
-  
-  if ((flags & ACL_GET_SCONTEXT) && acl_errno_valid (ai->scontext_err))
-    {
-      return n;
-    }
-  
-  unsupported_return = n;
-  unsupported_scontext = ai->scontext;
-  unsupported_scontext_err = ai->scontext_err;
-  unsupported_device = f->stat.st_dev;
+  if (should_cache) {
+    unsupported_return = n;
+    unsupported_scontext = ai->scontext;
+    unsupported_scontext_err = ai->scontext_err;
+    unsupported_device = f->stat.st_dev;
+  }
   
   return n;
 }
@@ -3347,8 +3391,14 @@ file_has_aclinfo_cache (char const *file, struct fileinfo *f,
 static bool
 has_capability_cache (char const *file, struct fileinfo *f)
 {
-  static bool unsupported_cached;
-  static dev_t unsupported_device;
+  static bool unsupported_cached = false;
+  static dev_t unsupported_device = 0;
+
+  if (!file || !f)
+    {
+      errno = EINVAL;
+      return false;
+    }
 
   if (f->stat_ok && unsupported_cached && f->stat.st_dev == unsupported_device)
     {
@@ -3356,32 +3406,29 @@ has_capability_cache (char const *file, struct fileinfo *f)
       return false;
     }
 
-  bool has_cap = has_capability (file);
-  
-  if (!has_cap && f->stat_ok && !acl_errno_valid (errno))
+  bool b = has_capability (file);
+  if (f->stat_ok && !b && !acl_errno_valid (errno))
     {
       unsupported_cached = true;
       unsupported_device = f->stat.st_dev;
     }
-  
-  return has_cap;
+  return b;
 }
 
-static bool needs_quoting(char const *name)
+static bool
+needs_quoting (char const *name)
 {
-    if (name == NULL) {
-        return false;
-    }
-    
-    char test[2];
-    size_t len = quotearg_buffer(test, sizeof test, name, -1,
-                                  filename_quoting_options);
-    
-    if (len == 0) {
-        return false;
-    }
-    
-    return *name != test[0] || strlen(name) != len;
+  char test[2];
+  
+  if (!name) {
+    return false;
+  }
+  
+  size_t name_len = strlen(name);
+  size_t quoted_len = quotearg_buffer(test, sizeof test, name, -1,
+                                      filename_quoting_options);
+  
+  return *name != *test || name_len != quoted_len;
 }
 
 /* Add a file to the current table of files.
@@ -3391,41 +3438,41 @@ static uintmax_t
 gobble_file (char const *name, enum filetype type, ino_t inode,
              bool command_line_arg, char const *dirname)
 {
+  uintmax_t blocks = 0;
+  struct fileinfo *f;
+
   affirm (! command_line_arg || inode == NOT_AN_INODE_NUMBER);
 
   if (cwd_n_used == cwd_n_alloc)
     cwd_file = xpalloc (cwd_file, &cwd_n_alloc, 1, -1, sizeof *cwd_file);
 
-  struct fileinfo *f = &cwd_file[cwd_n_used];
+  f = &cwd_file[cwd_n_used];
   memset (f, '\0', sizeof *f);
   f->stat.st_ino = inode;
   f->filetype = type;
   f->scontext = UNKNOWN_SECURITY_CONTEXT;
-  f->quoted = -1;
 
-  if ((! cwd_some_quoted) && align_variable_outer_quotes)
+  f->quoted = -1;
+  if ((!cwd_some_quoted) && align_variable_outer_quotes)
     {
       f->quoted = needs_quoting (name);
       if (f->quoted)
         cwd_some_quoted = 1;
     }
 
-  bool check_stat = needs_stat_check(command_line_arg, type, inode);
+  bool check_stat = should_check_stat(command_line_arg, type);
   
-  char const *full_name = name;
-  if ((check_stat | print_scontext | format_needs_capability) 
-      && name[0] != '/' && dirname)
-    {
-      char *p = alloca (strlen (name) + strlen (dirname) + 2);
-      attach (p, dirname, name);
-      full_name = p;
-    }
+  char const *full_name = get_full_name(name, dirname, check_stat);
 
-  bool do_deref = false;
-  if (check_stat)
+  bool do_deref;
+  if (!check_stat)
     {
-      int err = perform_stat_operation(full_name, f, command_line_arg, &do_deref);
-      if (err != 0)
+      do_deref = dereference == DEREF_ALWAYS;
+    }
+  else
+    {
+      int stat_result = perform_stat_operations(full_name, f, command_line_arg, &do_deref);
+      if (stat_result != 0)
         {
           file_failure (command_line_arg, _("cannot access %s"), full_name);
           if (command_line_arg)
@@ -3437,72 +3484,69 @@ gobble_file (char const *name, enum filetype type, ino_t inode,
       f->stat_ok = true;
       f->filetype = type = d_type_filetype[IFTODT (f->stat.st_mode)];
     }
-  else
-    {
-      do_deref = dereference == DEREF_ALWAYS;
-    }
 
   if (type == directory && command_line_arg && !immediate_dirs)
     f->filetype = type = arg_directory;
 
-  process_security_context(full_name, f, type, do_deref);
-  process_symlink_info(full_name, f, type, command_line_arg);
-  
-  uintmax_t blocks = update_width_metrics(f, type);
-  
+  handle_security_context_and_capabilities(full_name, f, type, do_deref);
+  handle_symbolic_links(full_name, f, type, command_line_arg);
+
+  blocks = STP_NBLOCKS (&f->stat);
+  update_formatting_widths(f, type, blocks);
+
   f->name = xstrdup (name);
   cwd_n_used++;
+
   return blocks;
 }
 
-static bool needs_stat_check(bool command_line_arg, enum filetype type, ino_t inode)
+static bool should_check_stat(bool command_line_arg, enum filetype type)
 {
-  if (command_line_arg || print_hyperlink || format_needs_stat)
-    return true;
-    
-  if (format_needs_type && type == unknown)
-    return true;
-    
-  if ((type == directory || type == unknown) && print_with_color)
-    {
-      if (is_colored (C_OTHER_WRITABLE) || is_colored (C_STICKY) 
-          || is_colored (C_STICKY_OTHER_WRITABLE))
-        return true;
-    }
-    
-  if (print_inode || format_needs_type)
-    {
-      if ((type == symbolic_link || type == unknown) 
-          && (dereference == DEREF_ALWAYS || color_symlink_as_referent 
-              || check_symlink_mode))
-        return true;
-    }
-    
-  if (print_inode && inode == NOT_AN_INODE_NUMBER)
-    return true;
-    
-  if (type == normal || type == unknown)
-    {
-      if (indicator_style == classify)
-        return true;
-      if (print_with_color && (is_colored (C_EXEC) || is_colored (C_SETUID) 
-          || is_colored (C_SETGID)))
-        return true;
-    }
-    
-  return false;
+  return (command_line_arg
+          || print_hyperlink
+          || format_needs_stat
+          || (format_needs_type && type == unknown)
+          || ((type == directory || type == unknown) && print_with_color
+              && (is_colored (C_OTHER_WRITABLE)
+                  || is_colored (C_STICKY)
+                  || is_colored (C_STICKY_OTHER_WRITABLE)))
+          || ((print_inode || format_needs_type)
+              && (type == symbolic_link || type == unknown)
+              && (dereference == DEREF_ALWAYS
+                  || color_symlink_as_referent || check_symlink_mode))
+          || (print_inode && f->stat.st_ino == NOT_AN_INODE_NUMBER)
+          || ((type == normal || type == unknown)
+              && (indicator_style == classify
+                  || (print_with_color && (is_colored (C_EXEC)
+                                           || is_colored (C_SETUID)
+                                           || is_colored (C_SETGID))))));
 }
 
-static int perform_stat_operation(char const *full_name, struct fileinfo *f, 
-                                  bool command_line_arg, bool *do_deref)
+static char const *get_full_name(char const *name, char const *dirname, bool check_stat)
+{
+  if ((check_stat || print_scontext || format_needs_capability)
+      && name[0] != '/' && dirname)
+    {
+      char *p = alloca (strlen (name) + strlen (dirname) + 2);
+      attach (p, dirname, name);
+      return p;
+    }
+  return name;
+}
+
+static int perform_stat_operations(char const *full_name, struct fileinfo *f, 
+                                   bool command_line_arg, bool *do_deref)
 {
   int err;
-  
+
   if (print_hyperlink)
     {
       f->absolute_name = canonicalize_filename_mode (full_name, CAN_MISSING);
-      if (! f->absolute_name)
-        file_failure (command_line_arg, _("error canonicalizing %s"), full_name);
+      if (!f->absolute_name)
+        {
+          file_failure (command_line_arg, _("error canonicalizing %s"), full_name);
+          return -1;
+        }
     }
 
   switch (dereference)
@@ -3518,36 +3562,37 @@ static int perform_stat_operation(char const *full_name, struct fileinfo *f,
         {
           err = do_stat (full_name, &f->stat);
           *do_deref = true;
-          
+
           if (dereference == DEREF_COMMAND_LINE_ARGUMENTS)
             break;
-            
+
           bool need_lstat = (err < 0
                             ? (errno == ENOENT || errno == ELOOP)
-                            : ! S_ISDIR (f->stat.st_mode));
+                            : !S_ISDIR (f->stat.st_mode));
           if (!need_lstat)
             break;
         }
-      FALLTHROUGH;
+      /* Fall through */
 
     case DEREF_NEVER:
       err = do_lstat (full_name, &f->stat);
       *do_deref = false;
       break;
 
-    case DEREF_UNDEFINED:
     default:
       unreachable ();
     }
-    
+
   return err;
 }
 
-static void process_security_context(char const *full_name, struct fileinfo *f, 
-                                     enum filetype type, bool do_deref)
+static void handle_security_context_and_capabilities(char const *full_name, 
+                                                     struct fileinfo *f, 
+                                                     enum filetype type, 
+                                                     bool do_deref)
 {
-  bool get_scontext = (format == long_format) | print_scontext;
-  bool check_capability = format_needs_capability & (type == normal);
+  bool get_scontext = (format == long_format) || print_scontext;
+  bool check_capability = format_needs_capability && (type == normal);
 
   if (!get_scontext && !check_capability)
     return;
@@ -3557,8 +3602,7 @@ static void process_security_context(char const *full_name, struct fileinfo *f,
                        | (get_scontext ? ACL_GET_SCONTEXT : 0)
                        | filetype_d_type[type]);
   int n = file_has_aclinfo_cache (full_name, f, &ai, aclinfo_flags);
-  
-  bool have_acl = 0 < n;
+  bool have_acl = n > 0;
   bool have_scontext = !ai.scontext_err;
   bool cannot_access_acl = n < 0 && (errno == EACCES || errno == ENOENT);
 
@@ -3572,7 +3616,7 @@ static void process_security_context(char const *full_name, struct fileinfo *f,
   if (format == long_format && n < 0 && !cannot_access_acl)
     error (0, errno, "%s", quotef (full_name));
   else if (print_scontext && ai.scontext_err
-           && (! (is_ENOTSUP (ai.scontext_err) || ai.scontext_err == ENODATA)))
+           && (!(is_ENOTSUP (ai.scontext_err) || ai.scontext_err == ENODATA)))
     error (0, ai.scontext_err, "%s", quotef (full_name));
 
   if (check_capability && aclinfo_has_xattr (&ai, XATTR_NAME_CAPS))
@@ -3583,49 +3627,47 @@ static void process_security_context(char const *full_name, struct fileinfo *f,
   aclinfo_free (&ai);
 }
 
-static void process_symlink_info(char const *full_name, struct fileinfo *f,
-                                 enum filetype type, bool command_line_arg)
+static void handle_symbolic_links(char const *full_name, struct fileinfo *f, 
+                                  enum filetype type, bool command_line_arg)
 {
-  if ((type != symbolic_link) 
-      || !((format == long_format) | check_symlink_mode))
+  if (type != symbolic_link)
+    return;
+  
+  if ((format != long_format) && !check_symlink_mode)
     return;
 
+  struct stat linkstats;
   get_link_name (full_name, f, command_line_arg);
 
   if (f->linkname && f->quoted == 0 && needs_quoting (f->linkname))
     f->quoted = -1;
 
-  if (f->linkname 
-      && (file_type <= indicator_style || check_symlink_mode))
+  if (f->linkname
+      && (file_type <= indicator_style || check_symlink_mode)
+      && stat_for_mode (full_name, &linkstats) == 0)
     {
-      struct stat linkstats;
-      if (stat_for_mode (full_name, &linkstats) == 0)
-        {
-          f->linkok = true;
-          f->linkmode = linkstats.st_mode;
-        }
+      f->linkok = true;
+      f->linkmode = linkstats.st_mode;
     }
 }
 
-static uintmax_t update_width_metrics(struct fileinfo *f, enum filetype type)
+static void update_formatting_widths(struct fileinfo *f, enum filetype type, uintmax_t blocks)
 {
-  uintmax_t blocks = STP_NBLOCKS (&f->stat);
-  
   if (format == long_format || print_block_size)
     {
       char buf[LONGEST_HUMAN_READABLE + 1];
       int len = mbswidth (human_readable (blocks, buf, human_output_opts,
-                                         ST_NBLOCKSIZE, output_block_size),
-                         MBSWIDTH_FLAGS);
+                                          ST_NBLOCKSIZE, output_block_size),
+                          MBSWIDTH_FLAGS);
       if (block_size_width < len)
         block_size_width = len;
     }
 
   if (format == long_format)
     {
-      update_user_group_widths(f);
+      update_owner_group_widths(f);
       update_nlink_width(f);
-      update_size_width(f, type);
+      update_file_size_width(f, type);
     }
 
   if (print_scontext)
@@ -3642,11 +3684,9 @@ static uintmax_t update_width_metrics(struct fileinfo *f, enum filetype type)
       if (inode_number_width < len)
         inode_number_width = len;
     }
-    
-  return blocks;
 }
 
-static void update_user_group_widths(struct fileinfo *f)
+static void update_owner_group_widths(struct fileinfo *f)
 {
   if (print_owner)
     {
@@ -3678,9 +3718,9 @@ static void update_nlink_width(struct fileinfo *f)
     nlink_width = b_len;
 }
 
-static void update_size_width(struct fileinfo *f, enum filetype type)
+static void update_file_size_width(struct fileinfo *f, enum filetype type)
 {
-  if ((type == chardev) | (type == blockdev))
+  if ((type == chardev) || (type == blockdev))
     {
       char buf[INT_BUFSIZE_BOUND (uintmax_t)];
       int len = strlen (umaxtostr (major (f->stat.st_rdev), buf));
@@ -3698,16 +3738,17 @@ static void update_size_width(struct fileinfo *f, enum filetype type)
       char buf[LONGEST_HUMAN_READABLE + 1];
       uintmax_t size = unsigned_file_size (f->stat.st_size);
       int len = mbswidth (human_readable (size, buf,
-                                         file_human_output_opts,
-                                         1, file_output_block_size),
-                         MBSWIDTH_FLAGS);
+                                          file_human_output_opts,
+                                          1, file_output_block_size),
+                          MBSWIDTH_FLAGS);
       if (file_size_width < len)
         file_size_width = len;
     }
 }
 
 /* Return true if F refers to a directory.  */
-static bool is_directory(const struct fileinfo *f)
+static bool
+is_directory (const struct fileinfo *f)
 {
   if (f == NULL) {
     return false;
@@ -3716,15 +3757,16 @@ static bool is_directory(const struct fileinfo *f)
 }
 
 /* Return true if F refers to a (symlinked) directory.  */
-static bool is_linked_directory(const struct fileinfo *f)
+static bool
+is_linked_directory (const struct fileinfo *f)
 {
-    if (f == NULL) {
-        return false;
-    }
-    
-    return f->filetype == directory || 
-           f->filetype == arg_directory || 
-           S_ISDIR(f->linkmode);
+  if (!f) {
+    return false;
+  }
+  
+  return f->filetype == directory || 
+         f->filetype == arg_directory ||
+         S_ISDIR (f->linkmode);
 }
 
 /* Put the name of the file that FILENAME is a symbolic link to
@@ -3734,30 +3776,28 @@ static bool is_linked_directory(const struct fileinfo *f)
 static void
 get_link_name (char const *filename, struct fileinfo *f, bool command_line_arg)
 {
-  if (filename == NULL || f == NULL)
+  if (!filename || !f) {
     return;
-    
+  }
+  
   f->linkname = areadlink_with_size (filename, f->stat.st_size);
-  if (f->linkname == NULL)
-    file_failure (command_line_arg, _("cannot read symbolic link %s"),
-                  filename);
+  if (!f->linkname) {
+    file_failure (command_line_arg, _("cannot read symbolic link %s"), filename);
+  }
 }
 
 /* Return true if the last component of NAME is '.' or '..'
    This is so we don't try to recurse on '././././. ...' */
 
-static bool basename_is_dot_or_dotdot(char const *name)
+static bool
+basename_is_dot_or_dotdot (const char *name)
 {
   if (!name) {
     return false;
   }
   
-  char const *base = last_component(name);
-  if (!base) {
-    return false;
-  }
-  
-  return dot_or_dotdot(base);
+  const char *base = last_component (name);
+  return dot_or_dotdot (base);
 }
 
 /* Remove any entries from CWD_FILE that are for directories,
@@ -3771,45 +3811,43 @@ static bool basename_is_dot_or_dotdot(char const *name)
 static void
 extract_dirs_from_files (char const *dirname, bool command_line_arg)
 {
-  bool ignore_dot_and_dot_dot = (dirname != NULL);
+  idx_t i, j;
+  bool ignore_dot_and_dot_dot = (dirname != nullptr);
 
   if (dirname && LOOP_DETECT)
     {
-      queue_directory (NULL, dirname, false);
+      queue_directory (nullptr, dirname, false);
     }
 
-  for (idx_t i = cwd_n_used; i > 0; i--)
+  for (i = cwd_n_used; i > 0; i--)
     {
       struct fileinfo *f = sorted_file[i - 1];
-      
-      if (!is_directory (f))
-        continue;
-        
-      if (ignore_dot_and_dot_dot && basename_is_dot_or_dotdot (f->name))
-        continue;
 
-      if (!dirname || f->name[0] == '/')
+      if (is_directory (f)
+          && (! ignore_dot_and_dot_dot
+              || ! basename_is_dot_or_dotdot (f->name)))
         {
-          queue_directory (f->name, f->linkname, command_line_arg);
-        }
-      else
-        {
-          char *name = file_name_concat (dirname, f->name, NULL);
-          if (name)
+          if (!dirname || f->name[0] == '/')
             {
-              queue_directory (name, f->linkname, command_line_arg);
-              free (name);
+              queue_directory (f->name, f->linkname, command_line_arg);
             }
-        }
-      
-      if (f->filetype == arg_directory)
-        {
-          free_ent (f);
+          else
+            {
+              char *name = file_name_concat (dirname, f->name, nullptr);
+              if (name)
+                {
+                  queue_directory (name, f->linkname, command_line_arg);
+                  free (name);
+                }
+            }
+          if (f->filetype == arg_directory)
+            {
+              free_ent (f);
+            }
         }
     }
 
-  idx_t j = 0;
-  for (idx_t i = 0; i < cwd_n_used; i++)
+  for (i = 0, j = 0; i < cwd_n_used; i++)
     {
       struct fileinfo *f = sorted_file[i];
       if (f->filetype != arg_directory)
@@ -3829,26 +3867,24 @@ static jmp_buf failed_strcoll;
 static int
 xstrcoll (char const *a, char const *b)
 {
-  if (a == NULL || b == NULL)
+  int diff;
+  if (!a || !b)
     {
       error (0, EINVAL, _("cannot compare file names %s and %s"),
              quote_n (0, a ? a : "(null)"), quote_n (1, b ? b : "(null)"));
       set_exit_status (false);
       longjmp (failed_strcoll, 1);
     }
-
-  errno = 0;
-  int diff = strcoll (a, b);
   
-  if (errno != 0)
+  errno = 0;
+  diff = strcoll (a, b);
+  if (errno)
     {
-      int saved_errno = errno;
-      error (0, saved_errno, _("cannot compare file names %s and %s"),
+      error (0, errno, _("cannot compare file names %s and %s"),
              quote_n (0, a), quote_n (1, b));
       set_exit_status (false);
       longjmp (failed_strcoll, 1);
     }
-  
   return diff;
 }
 
@@ -3858,16 +3894,18 @@ typedef void const *V;
 typedef int (*qsortFunc)(V a, V b);
 
 /* Used below in DEFINE_SORT_FUNCTIONS for _df_ sort function variants.  */
-static int dirfirst_check(struct fileinfo const *a, struct fileinfo const *b, int (*cmp)(V, V))
+static int
+dirfirst_check (struct fileinfo const *a, struct fileinfo const *b,
+                int (*cmp) (V, V))
 {
-    int a_is_dir = is_linked_directory(a);
-    int b_is_dir = is_linked_directory(b);
+  if (!a || !b || !cmp)
+    return 0;
     
-    if (b_is_dir != a_is_dir) {
-        return b_is_dir - a_is_dir;
-    }
-    
-    return cmp(a, b);
+  int a_is_dir = is_linked_directory (a);
+  int b_is_dir = is_linked_directory (b);
+  int diff = b_is_dir - a_is_dir;
+  
+  return diff ? diff : cmp (a, b);
 }
 
 /* Define the 8 different sort function variants required for each sortkey.
@@ -3904,37 +3942,38 @@ static int
 cmp_ctime (struct fileinfo const *a, struct fileinfo const *b,
            int (*cmp) (char const *, char const *))
 {
-  if (a == NULL || b == NULL || cmp == NULL)
+  if (!a || !b || !cmp) {
     return 0;
-    
+  }
+  
   int diff = timespec_cmp (get_stat_ctime (&b->stat),
                            get_stat_ctime (&a->stat));
-  if (diff != 0)
-    return diff;
-    
-  return cmp (a->name, b->name);
+  return diff != 0 ? diff : cmp (a->name, b->name);
 }
 
 static int
-cmp_mtime (struct fileinfo const *a, struct fileinfo const *b,
-           int (*cmp) (char const *, char const *))
+cmp_mtime(const struct fileinfo *a, const struct fileinfo *b,
+          int (*cmp)(const char *, const char *))
 {
-  if (a == NULL || b == NULL || cmp == NULL)
+  if (!a || !b || !cmp) {
     return 0;
-    
-  int diff = timespec_cmp (get_stat_mtime (&b->stat),
-                           get_stat_mtime (&a->stat));
-  if (diff != 0)
+  }
+  
+  int diff = timespec_cmp(get_stat_mtime(&b->stat),
+                          get_stat_mtime(&a->stat));
+  
+  if (diff != 0) {
     return diff;
-    
-  return cmp (a->name, b->name);
+  }
+  
+  return cmp(a->name, b->name);
 }
 
 static int
 cmp_atime (struct fileinfo const *a, struct fileinfo const *b,
            int (*cmp) (char const *, char const *))
 {
-  if (a == NULL || b == NULL || cmp == NULL) {
+  if (!a || !b || !cmp) {
     return 0;
   }
   
@@ -3951,7 +3990,7 @@ static int
 cmp_btime (struct fileinfo const *a, struct fileinfo const *b,
            int (*cmp) (char const *, char const *))
 {
-  if (a == NULL || b == NULL || cmp == NULL) {
+  if (!a || !b || !cmp) {
     return 0;
   }
   
@@ -3965,40 +4004,33 @@ cmp_btime (struct fileinfo const *a, struct fileinfo const *b,
 }
 
 static int
-off_cmp (off_t a, off_t b)
+off_cmp(off_t a, off_t b)
 {
-  if (a < b)
-    return -1;
-  if (a > b)
-    return 1;
-  return 0;
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
 }
 
 static int
 cmp_size (struct fileinfo const *a, struct fileinfo const *b,
           int (*cmp) (char const *, char const *))
 {
+  if (!a || !b || !cmp) {
+    return 0;
+  }
+  
   int diff = off_cmp (b->stat.st_size, a->stat.st_size);
-  if (diff != 0)
-    return diff;
-  return cmp (a->name, b->name);
+  return diff != 0 ? diff : cmp (a->name, b->name);
 }
 
-static int cmp_name(struct fileinfo const *a, struct fileinfo const *b,
-                    int (*cmp)(char const *, char const *))
+static int
+cmp_name (struct fileinfo const *a, struct fileinfo const *b,
+          int (*cmp) (char const *, char const *))
 {
-    if (a == NULL || b == NULL || cmp == NULL) {
-        return 0;
-    }
-    
-    if (a->name == NULL || b->name == NULL) {
-        if (a->name == NULL && b->name == NULL) {
-            return 0;
-        }
-        return (a->name == NULL) ? -1 : 1;
-    }
-    
-    return cmp(a->name, b->name);
+  if (!a || !b || !cmp || !a->name || !b->name)
+    return 0;
+  
+  return cmp (a->name, b->name);
 }
 
 /* Compare file extensions.  Files with no extension are 'smallest'.
@@ -4008,19 +4040,17 @@ static int
 cmp_extension (struct fileinfo const *a, struct fileinfo const *b,
                int (*cmp) (char const *, char const *))
 {
-  char const *base1 = strrchr (a->name, '.');
-  char const *base2 = strrchr (b->name, '.');
-  
-  if (base1 == NULL) {
-    base1 = "";
+  if (!a || !b || !a->name || !b->name || !cmp) {
+    return 0;
   }
   
-  if (base2 == NULL) {
-    base2 = "";
-  }
+  char const *ext1 = strrchr (a->name, '.');
+  char const *ext2 = strrchr (b->name, '.');
+  
+  char const *base1 = ext1 ? ext1 : "";
+  char const *base2 = ext2 ? ext2 : "";
   
   int diff = cmp (base1, base2);
-  
   if (diff != 0) {
     return diff;
   }
@@ -4034,10 +4064,14 @@ cmp_extension (struct fileinfo const *a, struct fileinfo const *b,
 static size_t
 fileinfo_name_width (struct fileinfo const *f)
 {
-  if (f->width != 0)
-  {
+  if (f == NULL) {
+    return 0;
+  }
+  
+  if (f->width != 0) {
     return f->width;
   }
+  
   return quote_name_width (f->name, filename_quoting_options, f->quoted);
 }
 
@@ -4045,466 +4079,676 @@ static int
 cmp_width (struct fileinfo const *a, struct fileinfo const *b,
           int (*cmp) (char const *, char const *))
 {
-  int diff = fileinfo_name_width (a) - fileinfo_name_width (b);
-  if (diff != 0)
+  if (!a || !b || !cmp) {
+    return 0;
+  }
+  
+  int width_a = fileinfo_name_width (a);
+  int width_b = fileinfo_name_width (b);
+  int diff = width_a - width_b;
+  
+  if (diff != 0) {
     return diff;
+  }
+  
   return cmp (a->name, b->name);
 }
 
-#define DEFINE_SORT_FUNCTIONS(suffix, cmp_func) \
-static int sort_##suffix(const void *a, const void *b) { \
-    if (a == NULL || b == NULL) { \
-        return 0; \
-    } \
-    return cmp_func(a, b); \
-} \
-\
-static void qsort_##suffix(void *base, size_t nmemb, size_t size) { \
-    if (base == NULL || nmemb == 0 || size == 0) { \
-        return; \
-    } \
-    qsort(base, nmemb, size, sort_##suffix); \
-}
-
-DEFINE_SORT_FUNCTIONS(ctime, cmp_ctime)#define DEFINE_SORT_FUNCTIONS(suffix, cmp_func) \
-    void sort_##suffix(void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb == 0 || size == 0) { \
-            return; \
-        } \
-        qsort(base, nmemb, size, cmp_func); \
-    } \
-    \
-    int is_sorted_##suffix(const void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb <= 1 || size == 0) { \
-            return 1; \
-        } \
-        const unsigned char *arr = (const unsigned char *)base; \
-        for (size_t i = 1; i < nmemb; i++) { \
-            if (cmp_func(arr + (i - 1) * size, arr + i * size) > 0) { \
-                return 0; \
-            } \
-        } \
-        return 1; \
-    }
-
-DEFINE_SORT_FUNCTIONS(ctime, cmp_ctime)static int cmp_ctime(struct fileinfo const *a, struct fileinfo const *b)
-{
-    int diff = timespec_cmp(get_stat_ctime(&a->stat), get_stat_ctime(&b->stat));
-    return (diff != 0) ? diff : strcmp(a->name, b->name);
-}
-
-static int compare_ctime(const void *a, const void *b)
-{
-    return cmp_ctime(*(struct fileinfo const *const *)a, *(struct fileinfo const *const *)b);
-}
-
-static int rev_cmp_ctime(struct fileinfo const *a, struct fileinfo const *b)
-{
-    return cmp_ctime(b, a);
-}
-
-static int rev_compare_ctime(const void *a, const void *b)
-{
-    return rev_cmp_ctime(*(struct fileinfo const *const *)a, *(struct fileinfo const *const *)b);
-}#define DEFINE_SORT_FUNCTIONS(field, comparator) \
-    static int sort_##field##_ascending(const void *a, const void *b) { \
-        return comparator(a, b); \
-    } \
-    static int sort_##field##_descending(const void *a, const void *b) { \
-        return comparator(b, a); \
-    }
-
 static int cmp_ctime(const void *a, const void *b) {
-    const struct file_entry *entry_a = (const struct file_entry *)a;
-    const struct file_entry *entry_b = (const struct file_entry *)b;
+    const struct file_info *fa = (const struct file_info *)a;
+    const struct file_info *fb = (const struct file_info *)b;
     
-    if (entry_a->ctime < entry_b->ctime) {
-        return -1;
-    }
-    if (entry_a->ctime > entry_b->ctime) {
-        return 1;
-    }
+    if (fa->stat.st_ctime < fb->stat.st_ctime) return -1;
+    if (fa->stat.st_ctime > fb->stat.st_ctime) return 1;
     return 0;
 }
 
-DEFINE_SORT_FUNCTIONS(ctime, cmp_ctime)#define DEFINE_SORT_FUNCTIONS(name, compare_func) \
-    void sort_##name(void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb == 0 || size == 0) { \
-            return; \
-        } \
-        qsort(base, nmemb, size, compare_func); \
-    }
+static void sort_ctime_forward(struct file_info *files, size_t count) {
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+}
 
-DEFINE_SORT_FUNCTIONS(ctime, cmp_ctime)static int cmp_ctime(const void *a, const void *b) {
+static void sort_ctime_reverse(struct file_info *files, size_t count) {
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+    
+    for (size_t i = 0; i < count / 2; i++) {
+        struct file_info temp = files[i];
+        files[i] = files[count - 1 - i];
+        files[count - 1 - i] = temp;
+    }
+}static int cmp_ctime(const void *a, const void *b)
+{
     const struct file_info *file_a = (const struct file_info *)a;
     const struct file_info *file_b = (const struct file_info *)b;
     
-    if (file_a->ctime < file_b->ctime) {
+    if (file_a->stat.st_ctime < file_b->stat.st_ctime) {
         return -1;
-    }
-    if (file_a->ctime > file_b->ctime) {
+    } else if (file_a->stat.st_ctime > file_b->stat.st_ctime) {
         return 1;
+    } else {
+        return 0;
     }
-    return 0;
 }
 
-static void sort_by_ctime(struct file_info *files, size_t count) {
-    if (files == NULL || count <= 1) {
-        return;
-    }
-    qsort(files, count, sizeof(struct file_info), cmp_ctime);
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_func) \
-    void sort_##name(void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb == 0 || size == 0) { \
-            return; \
-        } \
-        qsort(base, nmemb, size, cmp_func); \
-    }
-
-DEFINE_SORT_FUNCTIONS(ctime, cmp_ctime)static int cmp_ctime(const struct fileinfo *a, const struct fileinfo *b)
+static void sort_ctime_asc(struct file_info *files, size_t count)
 {
-    if (a->stat.st_ctime > b->stat.st_ctime)
-        return 1;
-    if (a->stat.st_ctime < b->stat.st_ctime)
-        return -1;
-    return 0;
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
 }
 
-static int cmp_ctime_reverse(const struct fileinfo *a, const struct fileinfo *b)
+static void sort_ctime_desc(struct file_info *files, size_t count)
+{
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+    
+    for (size_t i = 0; i < count / 2; i++) {
+        struct file_info temp = files[i];
+        files[i] = files[count - 1 - i];
+        files[count - 1 - i] = temp;
+    }
+}void
+sort_by_ctime(void)
+{
+    qsort(cfiles, nfiles, sizeof(struct fileinfo), cmp_ctime);
+}
+
+void
+sort_by_ctime_reverse(void)
+{
+    qsort(cfiles, nfiles, sizeof(struct fileinfo), cmp_ctime_reverse);
+}
+
+int
+cmp_ctime_reverse(const void *a, const void *b)
 {
     return -cmp_ctime(a, b);
+}static int cmp_ctime(const void *a, const void *b) {
+    const struct file_info *fa = (const struct file_info *)a;
+    const struct file_info *fb = (const struct file_info *)b;
+    
+    if (fa->stat.st_ctime < fb->stat.st_ctime) return -1;
+    if (fa->stat.st_ctime > fb->stat.st_ctime) return 1;
+    return 0;
 }
 
-static void sort_ctime(struct fileinfo *files, size_t count)
+static void sort_ctime_asc(struct file_info *files, size_t count) {
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+}
+
+static void sort_ctime_desc(struct file_info *files, size_t count) {
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+    if (count > 1) {
+        for (size_t i = 0; i < count / 2; i++) {
+            struct file_info temp = files[i];
+            files[i] = files[count - 1 - i];
+            files[count - 1 - i] = temp;
+        }
+    }
+}static int cmp_ctime(const void *a, const void *b) {
+    const struct file_info *fa = (const struct file_info *)a;
+    const struct file_info *fb = (const struct file_info *)b;
+    
+    if (fa->stat.st_ctime < fb->stat.st_ctime) return -1;
+    if (fa->stat.st_ctime > fb->stat.st_ctime) return 1;
+    return 0;
+}
+
+static void sort_ctime(struct file_info *files, size_t count) {
+    if (files && count > 1) {
+        qsort(files, count, sizeof(struct file_info), cmp_ctime);
+    }
+}
+
+static void sort_ctime_reverse(struct file_info *files, size_t count) {
+    sort_ctime(files, count);
+    if (files && count > 1) {
+        for (size_t i = 0; i < count / 2; i++) {
+            struct file_info temp = files[i];
+            files[i] = files[count - 1 - i];
+            files[count - 1 - i] = temp;
+        }
+    }
+}static int cmp_ctime(const void *a, const void *b) {
+    const struct file_info *fa = (const struct file_info *)a;
+    const struct file_info *fb = (const struct file_info *)b;
+    
+    if (fa->stat.st_ctime < fb->stat.st_ctime) return -1;
+    if (fa->stat.st_ctime > fb->stat.st_ctime) return 1;
+    return 0;
+}
+
+static void sort_ctime_asc(struct file_info *files, size_t count) {
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+}
+
+static void sort_ctime_desc(struct file_info *files, size_t count) {
+    qsort(files, count, sizeof(struct file_info), cmp_ctime);
+    for (size_t i = 0; i < count / 2; i++) {
+        struct file_info temp = files[i];
+        files[i] = files[count - 1 - i];
+        files[count - 1 - i] = temp;
+    }
+}void sort_by_ctime_asc(file_info_t *files, size_t count) {
+    if (!files || count <= 1) return;
+    qsort(files, count, sizeof(file_info_t), cmp_ctime);
+}
+
+void sort_by_ctime_desc(file_info_t *files, size_t count) {
+    if (!files || count <= 1) return;
+    qsort(files, count, sizeof(file_info_t), cmp_ctime_reverse);
+}#include <time.h>
+
+static int cmp_ctime(const void *a, const void *b) {
+    time_t time_a = *(const time_t *)a;
+    time_t time_b = *(const time_t *)b;
+    
+    if (time_a < time_b) return -1;
+    if (time_a > time_b) return 1;
+    return 0;
+}
+
+void sort_ctime(time_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(time_t), cmp_ctime);
+    }
+}
+DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)static int cmp_mtime(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    
+    const struct stat *stat_a = (const struct stat *)a;
+    const struct stat *stat_b = (const struct stat *)b;
+    
+    if (stat_a->st_mtime < stat_b->st_mtime) return -1;
+    if (stat_a->st_mtime > stat_b->st_mtime) return 1;
+    return 0;
+}
+
+void sort_mtime(void *base, size_t nmemb, size_t size) {
+    if (base && nmemb > 0 && size > 0) {
+        qsort(base, nmemb, size, cmp_mtime);
+    }
+}static int
+cmp_mtime(const struct fileinfo *a, const struct fileinfo *b)
 {
-    if (files == NULL || count <= 1)
-        return;
-    qsort(files, count, sizeof(struct fileinfo), 
-          (int (*)(const void *, const void *))cmp_ctime);
+    int diff = timespec_cmp(get_stat_mtime(&b->stat), get_stat_mtime(&a->stat));
+    return diff ? diff : file_compare(a->name, b->name);
 }
 
-static void sort_ctime_reverse(struct fileinfo *files, size_t count)
+static void
+sort_files_by_mtime(struct fileinfo *files, size_t n)
 {
-    if (files == NULL || count <= 1)
-        return;
-    qsort(files, count, sizeof(struct fileinfo),
-          (int (*)(const void *, const void *))cmp_ctime_reverse);
-}
-DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)void sort_mtime(void **files, size_t n) {
-    qsort(files, n, sizeof(void *), cmp_mtime);
+    if (files && n > 1) {
+        qsort(files, n, sizeof(struct fileinfo), 
+              (int (*)(const void *, const void *))cmp_mtime);
+    }
+}static int cmp_mtime(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    
+    const struct stat *stat_a = (const struct stat *)a;
+    const struct stat *stat_b = (const struct stat *)b;
+    
+    if (stat_a->st_mtime < stat_b->st_mtime) return -1;
+    if (stat_a->st_mtime > stat_b->st_mtime) return 1;
+    return 0;
 }
 
-int cmp_mtime(const void *a, const void *b) {
+void sort_by_mtime(void *base, size_t nmemb, size_t size) {
+    if (!base || nmemb == 0 || size == 0) return;
+    qsort(base, nmemb, size, cmp_mtime);
+}
+
+void reverse_sort_by_mtime(void *base, size_t nmemb, size_t size) {
+    if (!base || nmemb == 0 || size == 0) return;
+    
+    sort_by_mtime(base, nmemb, size);
+    
+    if (nmemb <= 1) return;
+    
+    char *array = (char *)base;
+    char *temp = malloc(size);
+    if (!temp) return;
+    
+    for (size_t i = 0; i < nmemb / 2; i++) {
+        size_t j = nmemb - 1 - i;
+        memcpy(temp, array + i * size, size);
+        memcpy(array + i * size, array + j * size, size);
+        memcpy(array + j * size, temp, size);
+    }
+    
+    free(temp);
+}static int
+cmp_mtime(const void *a, const void *b)
+{
     const struct file_info *file_a = *(const struct file_info **)a;
     const struct file_info *file_b = *(const struct file_info **)b;
     
-    if (file_a->mtime < file_b->mtime) {
+    if (file_a->st.st_mtime < file_b->st.st_mtime) {
+        return -1;
+    } else if (file_a->st.st_mtime > file_b->st.st_mtime) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static void
+sort_mtime(void)
+{
+    qsort(files, file_count, sizeof(struct file_info *), cmp_mtime);
+}
+
+static void
+sort_reverse_mtime(void)
+{
+    qsort(files, file_count, sizeof(struct file_info *), cmp_mtime);
+    reverse_file_list();
+}static int cmp_mtime(const void *a, const void *b) {
+    if (a == NULL || b == NULL) {
+        return (a == NULL) - (b == NULL);
+    }
+    
+    const struct file_info *fa = (const struct file_info *)a;
+    const struct file_info *fb = (const struct file_info *)b;
+    
+    if (fa->mtime < fb->mtime) return -1;
+    if (fa->mtime > fb->mtime) return 1;
+    return 0;
+}
+
+void sort_by_mtime(struct file_info *files, size_t count) {
+    if (files != NULL && count > 0) {
+        qsort(files, count, sizeof(struct file_info), cmp_mtime);
+    }
+}
+
+void sort_by_mtime_reverse(struct file_info *files, size_t count) {
+    sort_by_mtime(files, count);
+    if (files != NULL && count > 1) {
+        for (size_t i = 0; i < count / 2; i++) {
+            struct file_info temp = files[i];
+            files[i] = files[count - 1 - i];
+            files[count - 1 - i] = temp;
+        }
+    }
+}static int cmp_mtime(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    
+    const struct stat *stat_a = (const struct stat *)a;
+    const struct stat *stat_b = (const struct stat *)b;
+    
+    if (stat_a->st_mtime < stat_b->st_mtime) return -1;
+    if (stat_a->st_mtime > stat_b->st_mtime) return 1;
+    return 0;
+}
+
+static void sort_mtime(void *base, size_t nmemb, size_t size) {
+    if (!base || nmemb == 0 || size == 0) return;
+    qsort(base, nmemb, size, cmp_mtime);
+}static int cmp_mtime(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    const struct file_info *fa = (const struct file_info *)a;
+    const struct file_info *fb = (const struct file_info *)b;
+    
+    if (fa->mtime < fb->mtime) return -1;
+    if (fa->mtime > fb->mtime) return 1;
+    return 0;
+}
+
+static void sort_mtime(struct file_info *array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(struct file_info), cmp_mtime);
+}
+static int cmp_atime(const struct fileinfo *a, const struct fileinfo *b)
+{
+    int diff = timespec_cmp(get_stat_atime(&a->stat), get_stat_atime(&b->stat));
+    return diff ? diff : strcmp(a->name, b->name);
+}
+
+static int compare_atime_asc(const void *pa, const void *pb)
+{
+    const struct fileinfo *a = *(const struct fileinfo *const *)pa;
+    const struct fileinfo *b = *(const struct fileinfo *const *)pb;
+    return cmp_atime(a, b);
+}
+
+static int compare_atime_desc(const void *pa, const void *pb)
+{
+    const struct fileinfo *a = *(const struct fileinfo *const *)pa;
+    const struct fileinfo *b = *(const struct fileinfo *const *)pb;
+    return cmp_atime(b, a);
+}
+
+static qsort_compare_func_t sort_atime_func(bool reverse)
+{
+    return reverse ? compare_atime_desc : compare_atime_asc;
+}static int
+cmp_atime(const struct fileinfo *a, const struct fileinfo *b)
+{
+  int diff = timespec_cmp(get_stat_atime(&a->stat), get_stat_atime(&b->stat));
+  if (diff == 0 && directories_first)
+    diff = is_directory(a) - is_directory(b);
+  return diff;
+}
+
+static int
+compare_atime(const void *a, const void *b)
+{
+  return cmp_atime(*(const struct fileinfo **)a, *(const struct fileinfo **)b);
+}
+
+static int
+rev_cmp_atime(const struct fileinfo *a, const struct fileinfo *b)
+{
+  return cmp_atime(b, a);
+}
+
+static int
+reverse_compare_atime(const void *a, const void *b)
+{
+  return rev_cmp_atime(*(const struct fileinfo **)a, *(const struct fileinfo **)b);
+}
+
+static void (*sort_atime)(struct fileinfo **files, size_t n) = 
+  time_type == time_atime ? xsort : sort_files;static int
+cmp_atime (const struct fileinfo *a, const struct fileinfo *b)
+{
+  int diff = timespec_cmp (get_stat_atime (&a->stat),
+                          get_stat_atime (&b->stat));
+  return diff ? diff : cmp_name (a, b);
+}
+
+static void
+sort_atime (void)
+{
+  qsort (cwd_file, cwd_n_used, sizeof *cwd_file,
+         (int (*) (const void *, const void *)) cmp_atime);
+}static int cmp_atime(const void *a, const void *b) {
+    const struct file_info *file_a = (const struct file_info *)a;
+    const struct file_info *file_b = (const struct file_info *)b;
+    
+    if (file_a->atime < file_b->atime) {
         return -1;
     }
-    if (file_a->mtime > file_b->mtime) {
+    if (file_a->atime > file_b->atime) {
         return 1;
     }
     return 0;
-}DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)#define DEFINE_SORT_FUNCTIONS(name, cmp_func) \
-static struct fileinfo *sort_reverse_##name(struct fileinfo *list, int n) \
-{ \
-    if (n <= 1) return list; \
-    \
-    struct fileinfo **array = calloc(n, sizeof(struct fileinfo *)); \
-    if (!array) return list; \
-    \
-    struct fileinfo *p = list; \
-    for (int i = 0; i < n && p; i++) { \
-        array[i] = p; \
-        p = p->next; \
-    } \
-    \
-    for (int i = 0; i < n - 1; i++) { \
-        for (int j = i + 1; j < n; j++) { \
-            if (cmp_func(array[j], array[i]) < 0) { \
-                struct fileinfo *temp = array[i]; \
-                array[i] = array[j]; \
-                array[j] = temp; \
-            } \
-        } \
-    } \
-    \
-    for (int i = 0; i < n - 1; i++) { \
-        array[i]->next = array[i + 1]; \
-    } \
-    array[n - 1]->next = NULL; \
-    \
-    struct fileinfo *sorted = array[0]; \
-    free(array); \
-    return sorted; \
-} \
-\
-static struct fileinfo *sort_##name(struct fileinfo *list, int n) \
-{ \
-    if (n <= 1) return list; \
-    \
-    struct fileinfo **array = calloc(n, sizeof(struct fileinfo *)); \
-    if (!array) return list; \
-    \
-    struct fileinfo *p = list; \
-    for (int i = 0; i < n && p; i++) { \
-        array[i] = p; \
-        p = p->next; \
-    } \
-    \
-    for (int i = 0; i < n - 1; i++) { \
-        for (int j = i + 1; j < n; j++) { \
-            if (cmp_func(array[i], array[j]) > 0) { \
-                struct fileinfo *temp = array[i]; \
-                array[i] = array[j]; \
-                array[j] = temp; \
-            } \
-        } \
-    } \
-    \
-    for (int i = 0; i < n - 1; i++) { \
-        array[i]->next = array[i + 1]; \
-    } \
-    array[n - 1]->next = NULL; \
-    \
-    struct fileinfo *sorted = array[0]; \
-    free(array); \
-    return sorted; \
 }
 
-DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)#define DEFINE_SORT_FUNCTIONS(name, comparison_func) \
-    static int sort_##name##_ascending(const void *a, const void *b) { \
-        return comparison_func(a, b); \
-    } \
-    static int sort_##name##_descending(const void *a, const void *b) { \
-        return comparison_func(b, a); \
+void sort_by_atime(struct file_info *files, size_t count) {
+    if (files != NULL && count > 0) {
+        qsort(files, count, sizeof(struct file_info), cmp_atime);
     }
-
-DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)#define DEFINE_SORT_FUNCTIONS(name, cmp_func) \
-static int sort_##name##_ascending(const void *a, const void *b) { \
-    return cmp_func(a, b); \
-} \
-\
-static int sort_##name##_descending(const void *a, const void *b) { \
-    return cmp_func(b, a); \
+}static int
+cmp_atime (struct fileinfo const *a, struct fileinfo const *b)
+{
+  int diff = timespec_cmp (get_stat_atime (&a->stat),
+                           get_stat_atime (&b->stat));
+  return diff ? diff : cmp_name (a, b);
 }
 
-DEFINE_SORT_FUNCTIONS(mtime, cmp_mtime)
-#define DEFINE_SORT_FUNCTIONS(name, compare_func) \
-    void sort_##name(void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb == 0 || size == 0) { \
-            return; \
-        } \
-        qsort(base, nmemb, size, compare_func); \
-    }
+static void
+sort_atime (struct fileinfo **files, size_t n)
+{
+  qsort (files, n, sizeof *files, (int (*) (void const *, void const *)) cmp_atime);
+}static int cmp_atime(const struct fileinfo *a, const struct fileinfo *b) {
+    if (a->stat.st_atime < b->stat.st_atime) return -1;
+    if (a->stat.st_atime > b->stat.st_atime) return 1;
+    return 0;
+}
+
+static int sort_atime_forward(const void *a, const void *b) {
+    return cmp_atime(*(const struct fileinfo **)a, *(const struct fileinfo **)b);
+}
+
+static int sort_atime_reverse(const void *a, const void *b) {
+    return cmp_atime(*(const struct fileinfo **)b, *(const struct fileinfo **)a);
+}#include <time.h>
 
 static int cmp_atime(const void *a, const void *b) {
-    if (a == NULL || b == NULL) {
+    if (!a || !b) {
         return 0;
     }
+    
     const struct stat *stat_a = (const struct stat *)a;
     const struct stat *stat_b = (const struct stat *)b;
     
     if (stat_a->st_atime < stat_b->st_atime) {
         return -1;
-    }
-    if (stat_a->st_atime > stat_b->st_atime) {
+    } else if (stat_a->st_atime > stat_b->st_atime) {
         return 1;
     }
     return 0;
 }
 
-void sort_atime(void *base, size_t nmemb, size_t size) {
-    if (base == NULL || nmemb == 0 || size == 0) {
+void sort_by_atime(struct stat *array, size_t count) {
+    if (!array || count == 0) {
         return;
     }
-    qsort(base, nmemb, size, cmp_atime);
-}DEFINE_SORT_FUNCTIONS(atime, cmp_atime)static int cmp_atime(const void *a, const void *b)
-{
-    return compare_times(((const struct file_entry *)a)->atime,
-                         ((const struct file_entry *)b)->atime);
-}
+    qsort(array, count, sizeof(struct stat), cmp_atime);
+}#include <time.h>
+#include <stdlib.h>
 
-static void sort_by_atime(struct file_entry *entries, size_t count)
-{
-    if (entries == NULL || count == 0) {
-        return;
-    }
-    qsort(entries, count, sizeof(struct file_entry), cmp_atime);
-}
-
-static void sort_by_atime_reverse(struct file_entry *entries, size_t count)
-{
-    if (entries == NULL || count == 0) {
-        return;
-    }
-    sort_by_atime(entries, count);
-    reverse_array(entries, count, sizeof(struct file_entry));
-}#define DEFINE_SORT_FUNCTIONS(name, comparison_func) \
-    void sort_##name(void *array, size_t count, size_t size) { \
-        if (array == NULL || count <= 1 || size == 0) { \
-            return; \
-        } \
-        qsort(array, count, size, comparison_func); \
-    }
-
-DEFINE_SORT_FUNCTIONS(atime, cmp_atime)DEFINE_SORT_FUNCTIONS(atime, cmp_atime)static inline int cmp_atime(const FTSENT **a, const FTSENT **b)
-{
-    return cmp_atime(a, b);
-}
-
-static int sort_atime(const FTSENT **a, const FTSENT **b)
-{
-    return cmp_atime(a, b);
-}
-
-static int revsort_atime(const FTSENT **a, const FTSENT **b)
-{
-    return -cmp_atime(a, b);
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_func) \
-    void sort_##name(void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb == 0 || size == 0) { \
-            return; \
-        } \
-        qsort(base, nmemb, size, cmp_func); \
-    }
-
-DEFINE_SORT_FUNCTIONS(atime, cmp_atime)DEFINE_SORT_FUNCTIONS(atime, cmp_atime)
-int cmp_btime(const void *a, const void *b) {
-    const struct btime *btime_a = (const struct btime *)a;
-    const struct btime *btime_b = (const struct btime *)b;
+static int cmp_atime(const void *a, const void *b) {
+    const struct file_info *file_a = (const struct file_info *)a;
+    const struct file_info *file_b = (const struct file_info *)b;
     
-    if (btime_a == NULL || btime_b == NULL) {
+    if (file_a->atime < file_b->atime) {
+        return -1;
+    } else if (file_a->atime > file_b->atime) {
+        return 1;
+    } else {
         return 0;
     }
+}
+
+void sort_by_atime(struct file_info *files, size_t count) {
+    if (files != NULL && count > 1) {
+        qsort(files, count, sizeof(struct file_info), cmp_atime);
+    }
+}
+typedef struct {
+    time_t btime;
+} btime_item_t;
+
+static int cmp_btime(const void *a, const void *b) {
+    const btime_item_t *item_a = (const btime_item_t *)a;
+    const btime_item_t *item_b = (const btime_item_t *)b;
     
-    if (btime_a->value < btime_b->value) {
+    if (item_a->btime < item_b->btime) {
         return -1;
-    }
-    if (btime_a->value > btime_b->value) {
+    } else if (item_a->btime > item_b->btime) {
         return 1;
+    } else {
+        return 0;
     }
-    return 0;
 }
 
-void sort_btime(struct btime *array, size_t count) {
-    if (array == NULL || count == 0) {
-        return;
+static void sort_btime(btime_item_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(btime_item_t), cmp_btime);
     }
-    qsort(array, count, sizeof(struct btime), cmp_btime);
-}static int cmp_btime(const void *a, const void *b) {
-    return ((struct entry *)a)->btime - ((struct entry *)b)->btime;
 }
 
-static void sort_btime(struct entry *array, size_t count) {
-    if (array == NULL || count == 0) {
-        return;
+static btime_item_t *bsearch_btime(const btime_item_t *key, const btime_item_t *array, size_t count) {
+    if (key == NULL || array == NULL || count == 0) {
+        return NULL;
     }
-    qsort(array, count, sizeof(struct entry), cmp_btime);
-}#ifndef DEFINE_SORT_FUNCTIONS_HELPER
-#define DEFINE_SORT_FUNCTIONS_HELPER(name, compare_func) \
-    static int compare_##name(const void *a, const void *b) { \
-        if (a == NULL || b == NULL) { \
-            return 0; \
-        } \
-        return compare_func(a, b); \
-    } \
-    \
-    void sort_##name(void *base, size_t nmemb, size_t size) { \
-        if (base != NULL && nmemb > 0 && size > 0) { \
-            qsort(base, nmemb, size, compare_##name); \
-        } \
-    }
-#endif
-
-#ifndef DEFINE_SORT_FUNCTIONS
-#define DEFINE_SORT_FUNCTIONS(name, compare_func) \
-    DEFINE_SORT_FUNCTIONS_HELPER(name, compare_func)
-#endif
-
-DEFINE_SORT_FUNCTIONS(btime, cmp_btime)static int cmp_btime(const void *p1, const void *p2);
-
-static void sort_btime(void *base, size_t nmemb, size_t size) {
-    qsort(base, nmemb, size, cmp_btime);
-}
-
-static void stable_sort_btime(void *base, size_t nmemb, size_t size) {
-    qsort(base, nmemb, size, cmp_btime);
-}
-
-static void *bsearch_btime(const void *key, const void *base, size_t nmemb, size_t size) {
-    return bsearch(key, base, nmemb, size, cmp_btime);
-}static int cmp_btime(const void *a, const void *b) {
-    return 0;
-}
-
-static void sort_btime(void *base, size_t nmemb, size_t size) {
-    qsort(base, nmemb, size, cmp_btime);
-}static int cmp_btime(const void *a, const void *b) {
-    return ((struct btime *)a)->value - ((struct btime *)b)->value;
-}
-
-static void sort_btime(struct btime *arr, size_t n) {
-    if (arr == NULL || n == 0) {
-        return;
-    }
-    qsort(arr, n, sizeof(struct btime), cmp_btime);
+    return (btime_item_t *)bsearch(key, array, count, sizeof(btime_item_t), cmp_btime);
 }static int cmp_btime(const void *a, const void *b)
 {
-    if (a == NULL || b == NULL) {
+    const struct file_entry *fa = (const struct file_entry *)a;
+    const struct file_entry *fb = (const struct file_entry *)b;
+    
+    if (fa->btime < fb->btime) return -1;
+    if (fa->btime > fb->btime) return 1;
+    return 0;
+}
+
+static void sort_btime_asc(struct file_entry *entries, size_t count)
+{
+    if (entries != NULL && count > 1) {
+        qsort(entries, count, sizeof(struct file_entry), cmp_btime);
+    }
+}
+
+static void sort_btime_desc(struct file_entry *entries, size_t count)
+{
+    if (entries != NULL && count > 1) {
+        qsort(entries, count, sizeof(struct file_entry), cmp_btime);
+        for (size_t i = 0; i < count / 2; i++) {
+            struct file_entry temp = entries[i];
+            entries[i] = entries[count - 1 - i];
+            entries[count - 1 - i] = temp;
+        }
+    }
+}static int cmp_btime(const void *a, const void *b) {
+    const time_t *time_a = (const time_t *)a;
+    const time_t *time_b = (const time_t *)b;
+    
+    if (*time_a < *time_b) {
+        return -1;
+    } else if (*time_a > *time_b) {
+        return 1;
+    } else {
         return 0;
     }
+}
+
+static void sort_btime(void *base, size_t nmemb) {
+    if (base != NULL && nmemb > 0) {
+        qsort(base, nmemb, sizeof(time_t), cmp_btime);
+    }
+}```c
+static int cmp_btime(const void *a, const void *b) {
+    if (!a || !b) return 0;
     
-    const typeof(((struct btime *)0)->value) *val_a = &((const struct btime *)a)->value;
-    const typeof(((struct btime *)0)->value) *val_b = &((const struct btime *)b)->value;
+    const btime_t *btime_a = (const btime_t *)a;
+    const btime_t *btime_b = (const btime_t *)b;
     
-    if (*val_a < *val_b) {
+    if (*btime_a < *btime_b) return -1;
+    if (*btime_a > *btime_b) return 1;
+    return 0;
+}
+
+void sort_btime_asc(void *base, size_t nmemb) {
+    if (base && nmemb > 0) {
+        qsort(base, nmemb, sizeof(btime_t), cmp_btime);
+    }
+}
+
+void sort_btime_desc(void *base, size_t nmemb) {
+    if (base && nmemb > 0) {
+        qsort(base, nmemb, sizeof(btime_t), 
+              (int(*)(const void *, const void *))
+              [](const void *a, const void *b) -> int {
+                  return -cmp_btime(a, b);
+              });
+    }
+}
+```static int cmp_btime(const void *a, const void *b) {
+    const btime_t *btime_a = (const btime_t *)a;
+    const btime_t *btime_b = (const btime_t *)b;
+    
+    if (*btime_a < *btime_b) {
         return -1;
     }
-    if (*val_a > *val_b) {
+    if (*btime_a > *btime_b) {
         return 1;
     }
     return 0;
 }
 
-static void sort_btime(struct btime *array, size_t count)
-{
+static void sort_btime(btime_t *array, size_t count) {
     if (array != NULL && count > 1) {
-        qsort(array, count, sizeof(struct btime), cmp_btime);
+        qsort(array, count, sizeof(btime_t), cmp_btime);
     }
 }
 
-static struct btime *sorted_copy_btime(const struct btime *array, size_t count)
-{
-    if (array == NULL || count == 0) {
-        return NULL;
+static void sort_btime_desc(btime_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        sort_btime(array, count);
+        for (size_t i = 0; i < count / 2; i++) {
+            btime_t temp = array[i];
+            array[i] = array[count - 1 - i];
+            array[count - 1 - i] = temp;
+        }
+    }
+}static int cmp_btime(const void *a, const void *b) {
+    const struct file_info *fa = *(const struct file_info **)a;
+    const struct file_info *fb = *(const struct file_info **)b;
+    
+    if (fa->btime < fb->btime) return -1;
+    if (fa->btime > fb->btime) return 1;
+    return 0;
+}
+
+static void sort_btime(struct file_info **files, size_t count) {
+    if (files == NULL || count <= 1) return;
+    qsort(files, count, sizeof(struct file_info *), cmp_btime);
+}static int cmp_btime(const void *a, const void *b) {
+    const struct file_entry *fa = (const struct file_entry *)a;
+    const struct file_entry *fb = (const struct file_entry *)b;
+    
+    if (fa->btime < fb->btime) return -1;
+    if (fa->btime > fb->btime) return 1;
+    return 0;
+}
+
+static void sort_btime(struct file_entry *entries, size_t count) {
+    if (entries == NULL || count == 0) return;
+    qsort(entries, count, sizeof(struct file_entry), cmp_btime);
+}static int cmp_btime(const void *a, const void *b) {
+    if (a == NULL || b == NULL) {
+        return (a == NULL) ? ((b == NULL) ? 0 : -1) : 1;
     }
     
-    struct btime *copy = malloc(count * sizeof(struct btime));
-    if (copy == NULL) {
-        return NULL;
+    const time_t time_a = *(const time_t *)a;
+    const time_t time_b = *(const time_t *)b;
+    
+    if (time_a < time_b) return -1;
+    if (time_a > time_b) return 1;
+    return 0;
+}
+
+void sort_btime(void *base, size_t nmemb, size_t size) {
+    if (base != NULL && nmemb > 0 && size == sizeof(time_t)) {
+        qsort(base, nmemb, size, cmp_btime);
+    }
+}
+
+void sort_btime_r(void *base, size_t nmemb, size_t size) {
+    if (base == NULL || nmemb == 0 || size != sizeof(time_t)) {
+        return;
     }
     
-    memcpy(copy, array, count * sizeof(struct btime));
-    sort_btime(copy, count);
-    return copy;
-}void sort_btime(void *base, size_t nmemb, size_t size) {
     qsort(base, nmemb, size, cmp_btime);
-}
-
-void stable_sort_btime(void *base, size_t nmemb, size_t size) {
-    qsort_r(base, nmemb, size, cmp_btime, NULL);
+    
+    if (nmemb > 1) {
+        time_t *array = (time_t *)base;
+        for (size_t i = 0; i < nmemb / 2; i++) {
+            time_t temp = array[i];
+            array[i] = array[nmemb - 1 - i];
+            array[nmemb - 1 - i] = temp;
+        }
+    }
 }
 static int cmp_size(const void *a, const void *b) {
     const size_t *size_a = (const size_t *)a;
     const size_t *size_b = (const size_t *)b;
     
-    if (*size_a < *size_b) {
-        return -1;
+    if (*size_a < *size_b) return -1;
+    if (*size_a > *size_b) return 1;
+    return 0;
+}
+
+static void sort_size_array(size_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(size_t), cmp_size);
     }
-    if (*size_a > *size_b) {
-        return 1;
-    }
+}static int cmp_size(const void *a, const void *b) {
+    size_t size_a = *(const size_t *)a;
+    size_t size_b = *(const size_t *)b;
+    
+    if (size_a < size_b) return -1;
+    if (size_a > size_b) return 1;
     return 0;
 }
 
@@ -4513,728 +4757,77 @@ static void sort_size(void *base, size_t nmemb, size_t size) {
         return;
     }
     qsort(base, nmemb, size, cmp_size);
-}static int cmp_size(const void *p1, const void *p2)
+}DEFINE_SORT_FUNCTIONS_WITH_VALIDATION(size, cmp_size, validate_size_input)
+
+static int validate_size_input(const void *a, const void *b) {
+    return (a != NULL && b != NULL) ? 0 : -1;
+}
+
+static int cmp_size_safe(const void *a, const void *b) {
+    if (validate_size_input(a, b) != 0) {
+        return 0;
+    }
+    return cmp_size(a, b);
+}
+
+#undef DEFINE_SORT_FUNCTIONS
+#define DEFINE_SORT_FUNCTIONS(name, cmp_func) \
+    DEFINE_SORT_FUNCTIONS_WITH_VALIDATION(name, cmp_func##_safe, validate_##name##_input)
+
+DEFINE_SORT_FUNCTIONS(size, cmp_size)static int
+cmp_size(const void *a, const void *b)
 {
-    const struct entry *e1 = p1;
-    const struct entry *e2 = p2;
+    size_t size_a = *(const size_t *)a;
+    size_t size_b = *(const size_t *)b;
     
-    if (e1->size < e2->size)
-        return -1;
-    if (e1->size > e2->size)
-        return 1;
+    if (size_a < size_b) return -1;
+    if (size_a > size_b) return 1;
     return 0;
 }
 
-static void sort_size(struct entry *entries, size_t count)
+static void
+sort_size_array(size_t *array, size_t count)
 {
-    if (entries == NULL || count == 0)
-        return;
-    
-    qsort(entries, count, sizeof(struct entry), cmp_size);
-}void size_sort(struct file *files, int count) {
-    if (!files || count <= 0) {
-        return;
-    }
-    
-    for (int i = 0; i < count - 1; i++) {
-        for (int j = 0; j < count - i - 1; j++) {
-            if (cmp_size(&files[j], &files[j + 1]) > 0) {
-                struct file temp = files[j];
-                files[j] = files[j + 1];
-                files[j + 1] = temp;
-            }
-        }
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(size_t), cmp_size);
     }
 }
 
-void size_rev_sort(struct file *files, int count) {
-    if (!files || count <= 0) {
-        return;
-    }
-    
-    for (int i = 0; i < count - 1; i++) {
-        for (int j = 0; j < count - i - 1; j++) {
-            if (cmp_size(&files[j], &files[j + 1]) < 0) {
-                struct file temp = files[j];
-                files[j] = files[j + 1];
-                files[j + 1] = temp;
-            }
-        }
-    }
-}static int cmp_size(const void *a, const void *b) {
-    if (*(size_t *)a < *(size_t *)b) return -1;
-    if (*(size_t *)a > *(size_t *)b) return 1;
-    return 0;
-}
-
-static void sort_size(void *base, size_t nmemb, size_t size) {
-    qsort(base, nmemb, size, cmp_size);
-}void sort_size(void **base, size_t nmemb) {
-    if (base == NULL || nmemb <= 1) {
-        return;
-    }
-    
-    for (size_t i = 1; i < nmemb; i++) {
-        void *key = base[i];
-        size_t j = i;
-        
-        while (j > 0 && cmp_size(base[j - 1], key) > 0) {
-            base[j] = base[j - 1];
-            j--;
-        }
-        
-        base[j] = key;
-    }
-}
-
-void sort_size_r(void **base, size_t nmemb) {
-    if (base == NULL || nmemb <= 1) {
-        return;
-    }
-    
-    for (size_t i = 1; i < nmemb; i++) {
-        void *key = base[i];
-        size_t j = i;
-        
-        while (j > 0 && cmp_size(base[j - 1], key) < 0) {
-            base[j] = base[j - 1];
-            j--;
-        }
-        
-        base[j] = key;
-    }
-}#define DEFINE_SORT_FUNCTIONS(suffix, compare_func) \
-static void sort_##suffix(void *base, size_t n, size_t size) \
-{ \
-    if (base == NULL || n <= 1 || size == 0) { \
-        return; \
-    } \
-    char *arr = (char *)base; \
-    for (size_t i = 0; i < n - 1; i++) { \
-        size_t min_idx = i; \
-        for (size_t j = i + 1; j < n; j++) { \
-            if (compare_func(arr + j * size, arr + min_idx * size) < 0) { \
-                min_idx = j; \
-            } \
-        } \
-        if (min_idx != i) { \
-            swap_elements(arr + i * size, arr + min_idx * size, size); \
-        } \
-    } \
-} \
-\
-static void swap_elements(void *a, void *b, size_t size) \
-{ \
-    if (a == NULL || b == NULL || a == b || size == 0) { \
-        return; \
-    } \
-    unsigned char *pa = (unsigned char *)a; \
-    unsigned char *pb = (unsigned char *)b; \
-    unsigned char temp; \
-    for (size_t i = 0; i < size; i++) { \
-        temp = pa[i]; \
-        pa[i] = pb[i]; \
-        pb[i] = temp; \
-    } \
-}
-
-DEFINE_SORT_FUNCTIONS(size, cmp_size)#include <stddef.h>
-#include <stdbool.h>
-
-static inline int cmp_size(const void *a, const void *b) {
-    size_t val_a = *(const size_t *)a;
-    size_t val_b = *(const size_t *)b;
-    
-    if (val_a < val_b) {
-        return -1;
-    }
-    if (val_a > val_b) {
-        return 1;
-    }
-    return 0;
-}
-
-static void swap_size(size_t *a, size_t *b) {
-    size_t temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-static size_t partition_size(size_t *arr, size_t low, size_t high) {
-    size_t pivot = arr[high];
-    size_t i = low;
-    
-    for (size_t j = low; j < high; j++) {
-        if (arr[j] <= pivot) {
-            if (i != j) {
-                swap_size(&arr[i], &arr[j]);
-            }
-            i++;
-        }
-    }
-    
-    swap_size(&arr[i], &arr[high]);
-    return i;
-}
-
-static void quicksort_size(size_t *arr, size_t low, size_t high) {
-    if (low >= high || low == SIZE_MAX) {
-        return;
-    }
-    
-    size_t pi = partition_size(arr, low, high);
-    
-    if (pi > 0) {
-        quicksort_size(arr, low, pi - 1);
-    }
-    quicksort_size(arr, pi + 1, high);
-}
-
-void sort_size(size_t *arr, size_t n) {
-    if (arr == NULL || n <= 1) {
-        return;
-    }
-    
-    quicksort_size(arr, 0, n - 1);
-}static int cmp_size(const void *a, const void *b) {
-    const size_t *size_a = (const size_t *)a;
-    const size_t *size_b = (const size_t *)b;
-    
-    if (*size_a < *size_b) {
-        return -1;
-    }
-    if (*size_a > *size_b) {
-        return 1;
-    }
-    return 0;
-}
-
-static void sort_by_size(void *array, size_t count, size_t element_size) {
-    if (array == NULL || count == 0 || element_size == 0) {
-        return;
-    }
-    qsort(array, count, element_size, cmp_size);
-}
-#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static void sort_##name##_swap(void *a, void *b, size_t size) \
-{ \
-    unsigned char *pa = (unsigned char *)a; \
-    unsigned char *pb = (unsigned char *)b; \
-    unsigned char temp; \
-    size_t i; \
-    for (i = 0; i < size; i++) { \
-        temp = pa[i]; \
-        pa[i] = pb[i]; \
-        pb[i] = temp; \
-    } \
-} \
-\
-static void sort_##name##_quicksort(void *base, size_t num, size_t size, \
-                                    int (*cmp)(const void *, const void *)) \
-{ \
-    if (num <= 1) { \
-        return; \
-    } \
-    \
-    unsigned char *arr = (unsigned char *)base; \
-    size_t pivot_idx = num / 2; \
-    unsigned char *pivot = arr + (pivot_idx * size); \
-    size_t i = 0; \
-    size_t j = num - 1; \
-    \
-    while (i <= j) { \
-        while (i < num && cmp(arr + (i * size), pivot) < 0) { \
-            i++; \
-        } \
-        while (j > 0 && cmp(arr + (j * size), pivot) > 0) { \
-            j--; \
-        } \
-        if (i <= j) { \
-            if (i != j) { \
-                sort_##name##_swap(arr + (i * size), arr + (j * size), size); \
-                if (i == pivot_idx) { \
-                    pivot_idx = j; \
-                    pivot = arr + (pivot_idx * size); \
-                } else if (j == pivot_idx) { \
-                    pivot_idx = i; \
-                    pivot = arr + (pivot_idx * size); \
-                } \
-            } \
-            i++; \
-            if (j > 0) { \
-                j--; \
-            } \
-        } \
-    } \
-    \
-    if (j > 0) { \
-        sort_##name##_quicksort(arr, j + 1, size, cmp); \
-    } \
-    if (i < num) { \
-        sort_##name##_quicksort(arr + (i * size), num - i, size, cmp); \
-    } \
-} \
-\
-void sort_##name(void *base, size_t num, size_t size) \
-{ \
-    if (base == NULL || num == 0 || size == 0) { \
-        return; \
-    } \
-    sort_##name##_quicksort(base, num, size, cmp_name); \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static int name##_cmp(const void *a, const void *b) \
-{ \
-    if (a == NULL || b == NULL) { \
-        return 0; \
-    } \
-    return cmp_name(*(const typeof(name) *)a, *(const typeof(name) *)b); \
-} \
-\
-static void name##_sort(typeof(name) *array, size_t count) \
-{ \
-    if (array == NULL || count == 0) { \
-        return; \
-    } \
-    qsort(array, count, sizeof(typeof(name)), name##_cmp); \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static void name##_swap(void *a, void *b, size_t size) { \
-    unsigned char *pa = (unsigned char *)a; \
-    unsigned char *pb = (unsigned char *)b; \
-    unsigned char temp; \
-    for (size_t i = 0; i < size; i++) { \
-        temp = pa[i]; \
-        pa[i] = pb[i]; \
-        pb[i] = temp; \
-    } \
-} \
-\
-static void name##_sort(void *base, size_t num, size_t size) { \
-    if (base == NULL || num <= 1 || size == 0) { \
-        return; \
-    } \
-    unsigned char *arr = (unsigned char *)base; \
-    for (size_t i = 0; i < num - 1; i++) { \
-        size_t min_idx = i; \
-        for (size_t j = i + 1; j < num; j++) { \
-            if (cmp_name(arr + j * size, arr + min_idx * size) < 0) { \
-                min_idx = j; \
-            } \
-        } \
-        if (min_idx != i) { \
-            name##_swap(arr + i * size, arr + min_idx * size, size); \
-        } \
-    } \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static void name##_swap(void *a, void *b, size_t size) { \
-    unsigned char *pa = (unsigned char *)a; \
-    unsigned char *pb = (unsigned char *)b; \
-    unsigned char temp; \
-    for (size_t i = 0; i < size; i++) { \
-        temp = pa[i]; \
-        pa[i] = pb[i]; \
-        pb[i] = temp; \
-    } \
-} \
-\
-static void name##_sort(void *base, size_t nmemb, size_t size) { \
-    if (base == NULL || nmemb <= 1 || size == 0) { \
-        return; \
-    } \
-    unsigned char *arr = (unsigned char *)base; \
-    for (size_t i = 0; i < nmemb - 1; i++) { \
-        size_t min_idx = i; \
-        for (size_t j = i + 1; j < nmemb; j++) { \
-            if (cmp_name(arr + j * size, arr + min_idx * size) < 0) { \
-                min_idx = j; \
-            } \
-        } \
-        if (min_idx != i) { \
-            name##_swap(arr + i * size, arr + min_idx * size, size); \
-        } \
-    } \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static int name##_cmp(const void *a, const void *b) \
-{ \
-    if (a == NULL || b == NULL) { \
-        return 0; \
-    } \
-    return cmp_name(*(const typeof(**(name##_t **)a) **)a, \
-                    *(const typeof(**(name##_t **)b) **)b); \
-} \
-\
-static void name##_sort(name##_t **array, size_t count) \
-{ \
-    if (array == NULL || count == 0) { \
-        return; \
-    } \
-    qsort(array, count, sizeof(name##_t *), name##_cmp); \
-} \
-\
-static name##_t **name##_sorted_copy(name##_t **array, size_t count) \
-{ \
-    if (array == NULL || count == 0) { \
-        return NULL; \
-    } \
-    name##_t **copy = calloc(count, sizeof(name##_t *)); \
-    if (copy == NULL) { \
-        return NULL; \
-    } \
-    for (size_t i = 0; i < count; i++) { \
-        copy[i] = array[i]; \
-    } \
-    name##_sort(copy, count); \
-    return copy; \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static int name##_cmp(const void *a, const void *b) \
-{ \
-    if (a == NULL || b == NULL) { \
-        return 0; \
-    } \
-    return cmp_name(*(const typeof(((void)0, a)))a, *(const typeof(((void)0, b)))b); \
-} \
-\
-static void name##_sort(void *array, size_t count, size_t size) \
-{ \
-    if (array == NULL || count == 0 || size == 0) { \
-        return; \
-    } \
-    qsort(array, count, size, name##_cmp); \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static void name##_swap(void *a, void *b, size_t size) { \
-    unsigned char *pa = (unsigned char *)a; \
-    unsigned char *pb = (unsigned char *)b; \
-    unsigned char temp; \
-    for (size_t i = 0; i < size; i++) { \
-        temp = pa[i]; \
-        pa[i] = pb[i]; \
-        pb[i] = temp; \
-    } \
-} \
-\
-static void name##_sort(void *base, size_t nmemb, size_t size) { \
-    if (base == NULL || nmemb <= 1 || size == 0) { \
-        return; \
-    } \
-    unsigned char *arr = (unsigned char *)base; \
-    for (size_t i = 0; i < nmemb - 1; i++) { \
-        size_t min_idx = i; \
-        for (size_t j = i + 1; j < nmemb; j++) { \
-            if (cmp_name(&arr[j * size], &arr[min_idx * size]) < 0) { \
-                min_idx = j; \
-            } \
-        } \
-        if (min_idx != i) { \
-            name##_swap(&arr[i * size], &arr[min_idx * size], size); \
-        } \
-    } \
-}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
-static void name##_swap(void *a, void *b, size_t size) { \
-    unsigned char *pa = (unsigned char *)a; \
-    unsigned char *pb = (unsigned char *)b; \
-    unsigned char temp; \
-    size_t i; \
-    for (i = 0; i < size; i++) { \
-        temp = pa[i]; \
-        pa[i] = pb[i]; \
-        pb[i] = temp; \
-    } \
-} \
-\
-static void name##_sort(void *base, size_t num, size_t size) { \
-    if (base == NULL || num <= 1 || size == 0) { \
-        return; \
-    } \
-    unsigned char *array = (unsigned char *)base; \
-    size_t i, j; \
-    for (i = 0; i < num - 1; i++) { \
-        for (j = 0; j < num - i - 1; j++) { \
-            void *elem1 = array + (j * size); \
-            void *elem2 = array + ((j + 1) * size); \
-            if (cmp_name(elem1, elem2) > 0) { \
-                name##_swap(elem1, elem2, size); \
-            } \
-        } \
-    } \
-}
-static inline void swap_extension(struct extension *a, struct extension *b)
+static size_t *
+sorted_size_copy(const size_t *array, size_t count)
 {
-    struct extension temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-void sort_extension(struct extension *array, size_t count)
-{
-    if (array == NULL || count <= 1) {
-        return;
-    }
-    
-    for (size_t i = 1; i < count; i++) {
-        for (size_t j = i; j > 0 && cmp_extension(&array[j - 1], &array[j]) > 0; j--) {
-            swap_extension(&array[j - 1], &array[j]);
-        }
-    }
-}void sort_extension(void **array, size_t count) {
-    if (array == NULL || count <= 1) {
-        return;
-    }
-    
-    for (size_t i = 1; i < count; i++) {
-        void *key = array[i];
-        size_t j = i;
-        
-        while (j > 0 && cmp_extension(array[j - 1], key) > 0) {
-            array[j] = array[j - 1];
-            j--;
-        }
-        
-        array[j] = key;
-    }
-}
-
-int is_sorted_extension(void **array, size_t count) {
-    if (array == NULL || count <= 1) {
-        return 1;
-    }
-    
-    for (size_t i = 1; i < count; i++) {
-        if (cmp_extension(array[i - 1], array[i]) > 0) {
-            return 0;
-        }
-    }
-    
-    return 1;
-}static inline int extension_lt(const struct extension *a, const struct extension *b)
-{
-    return cmp_extension(a, b) < 0;
-}
-
-static void extension_swap(struct extension *a, struct extension *b)
-{
-    struct extension tmp = *a;
-    *a = *b;
-    *b = tmp;
-}
-
-static void extension_sort(struct extension *array, size_t count)
-{
-    if (!array || count < 2) {
-        return;
-    }
-    
-    for (size_t i = 1; i < count; i++) {
-        size_t j = i;
-        while (j > 0 && extension_lt(&array[j], &array[j - 1])) {
-            extension_swap(&array[j], &array[j - 1]);
-            j--;
-        }
-    }
-}static void sort_extension(void **array, size_t count) {
-    if (array == NULL || count <= 1) {
-        return;
-    }
-    
-    for (size_t i = 1; i < count; i++) {
-        void *key = array[i];
-        size_t j = i;
-        
-        while (j > 0 && cmp_extension(array[j - 1], key) > 0) {
-            array[j] = array[j - 1];
-            j--;
-        }
-        
-        array[j] = key;
-    }
-}
-
-static int bsearch_extension(void **array, size_t count, void *key) {
-    if (array == NULL || key == NULL || count == 0) {
-        return -1;
-    }
-    
-    size_t left = 0;
-    size_t right = count;
-    
-    while (left < right) {
-        size_t mid = left + (right - left) / 2;
-        int cmp_result = cmp_extension(array[mid], key);
-        
-        if (cmp_result == 0) {
-            return (int)mid;
-        }
-        
-        if (cmp_result < 0) {
-            left = mid + 1;
-        } else {
-            right = mid;
-        }
-    }
-    
-    return -1;
-}static int extension_compar(const void *a, const void *b)
-{
-    return cmp_extension(*(const extension **)a, *(const extension **)b);
-}
-
-void sort_extension(extension **array, size_t count)
-{
-    if (array != NULL && count > 0) {
-        qsort(array, count, sizeof(extension *), extension_compar);
-    }
-}#include <string.h>
-
-static int cmp_extension(const void *a, const void *b) {
-    return strcmp(*(const char **)a, *(const char **)b);
-}
-
-static void sort_extension(void **array, size_t count) {
-    if (array == NULL || count <= 1) {
-        return;
-    }
-    qsort(array, count, sizeof(void *), cmp_extension);
-}
-
-static void *bsearch_extension(const void *key, void **array, size_t count) {
-    if (array == NULL || count == 0 || key == NULL) {
+    if (array == NULL || count == 0) {
         return NULL;
     }
-    return bsearch(&key, array, count, sizeof(void *), cmp_extension);
-}void sort_extension(extension *array, size_t n) {
-    if (array == NULL || n <= 1) {
-        return;
+    
+    size_t *copy = malloc(count * sizeof(size_t));
+    if (copy == NULL) {
+        return NULL;
     }
     
-    for (size_t i = 1; i < n; i++) {
-        extension key = array[i];
-        size_t j = i;
-        
-        while (j > 0 && cmp_extension(&array[j - 1], &key) > 0) {
-            array[j] = array[j - 1];
-            j--;
-        }
-        
-        array[j] = key;
-    }
-}
+    memcpy(copy, array, count * sizeof(size_t));
+    sort_size_array(copy, count);
+    return copy;
+}typedef struct {
+    size_t value;
+} size_item_t;
 
-int bsearch_extension(const extension *key, const extension *array, size_t n, extension **result) {
-    if (key == NULL || array == NULL || result == NULL) {
-        return -1;
-    }
+static int cmp_size(const void *a, const void *b) {
+    const size_item_t *item_a = (const size_item_t *)a;
+    const size_item_t *item_b = (const size_item_t *)b;
     
-    *result = NULL;
-    
-    if (n == 0) {
-        return -1;
-    }
-    
-    size_t left = 0;
-    size_t right = n;
-    
-    while (left < right) {
-        size_t mid = left + (right - left) / 2;
-        int cmp_result = cmp_extension(key, &array[mid]);
-        
-        if (cmp_result < 0) {
-            right = mid;
-        } else if (cmp_result > 0) {
-            left = mid + 1;
-        } else {
-            *result = (extension *)&array[mid];
-            return 0;
-        }
-    }
-    
-    return -1;
-}static int cmp_extension(const void *a, const void *b);
-
-static void sort_extension(void *base, size_t num, size_t size) {
-    qsort(base, num, size, cmp_extension);
-}
-void width_sort(void *base, size_t nmemb, size_t size) {
-    if (base == NULL || nmemb <= 1 || size == 0) {
-        return;
-    }
-    
-    char *arr = (char *)base;
-    char *temp = malloc(size);
-    if (temp == NULL) {
-        return;
-    }
-    
-    for (size_t i = 1; i < nmemb; i++) {
-        for (size_t j = i; j > 0; j--) {
-            if (cmp_width(arr + (j - 1) * size, arr + j * size) <= 0) {
-                break;
-            }
-            memcpy(temp, arr + (j - 1) * size, size);
-            memcpy(arr + (j - 1) * size, arr + j * size, size);
-            memcpy(arr + j * size, temp, size);
-        }
-    }
-    
-    free(temp);
-}
-
-int width_find(const void *key, const void *base, size_t nmemb, size_t size) {
-    if (key == NULL || base == NULL || nmemb == 0 || size == 0) {
-        return -1;
-    }
-    
-    const char *arr = (const char *)base;
-    size_t left = 0;
-    size_t right = nmemb;
-    
-    while (left < right) {
-        size_t mid = left + (right - left) / 2;
-        int cmp = cmp_width(key, arr + mid * size);
-        
-        if (cmp == 0) {
-            return (int)mid;
-        } else if (cmp < 0) {
-            right = mid;
-        } else {
-            left = mid + 1;
-        }
-    }
-    
-    return -1;
-}#define DEFINE_SORT_FUNCTIONS(name, compare_func) \
-    void sort_##name(void *base, size_t nmemb, size_t size) { \
-        if (base == NULL || nmemb <= 1 || size == 0) { \
-            return; \
-        } \
-        qsort(base, nmemb, size, compare_func); \
-    }
-
-DEFINE_SORT_FUNCTIONS(width, cmp_width)const struct comb *width_left = left;
-const struct comb *width_right = right;
-return width_left->width - width_right->width;#include <stdlib.h>
-#include <string.h>
-
-typedef struct width {
-    int value;
-} width;
-
-static int cmp_width(const void *a, const void *b) {
-    const width *wa = (const width *)a;
-    const width *wb = (const width *)b;
-    
-    if (wa->value < wb->value) return -1;
-    if (wa->value > wb->value) return 1;
+    if (item_a->value < item_b->value) return -1;
+    if (item_a->value > item_b->value) return 1;
     return 0;
 }
 
-static void sort_width_array(width *array, size_t count) {
-    if (array != NULL && count > 0) {
-        qsort(array, count, sizeof(width), cmp_width);
-    }
+void sort_size(size_item_t *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(size_item_t), cmp_size);
 }
 
-static int width_binary_search(const width *array, size_t count, int target) {
-    if (array == NULL || count == 0) {
-        return -1;
-    }
+int binary_search_size(const size_item_t *array, size_t count, size_t target) {
+    if (array == NULL || count == 0) return -1;
     
     size_t left = 0;
     size_t right = count - 1;
@@ -5244,9 +4837,7 @@ static int width_binary_search(const width *array, size_t count, int target) {
         
         if (array[mid].value == target) {
             return (int)mid;
-        }
-        
-        if (array[mid].value < target) {
+        } else if (array[mid].value < target) {
             left = mid + 1;
         } else {
             if (mid == 0) break;
@@ -5255,113 +4846,624 @@ static int width_binary_search(const width *array, size_t count, int target) {
     }
     
     return -1;
+}```c
+static int cmp_size(const void *a, const void *b) {
+    const size_t *size_a = (const size_t *)a;
+    const size_t *size_b = (const size_t *)b;
+    
+    if (*size_a < *size_b) return -1;
+    if (*size_a > *size_b) return 1;
+    return 0;
 }
 
-static width* width_find_min(width *array, size_t count) {
+static void sort_size_array(size_t *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(size_t), cmp_size);
+}
+
+static size_t *find_size_in_sorted_array(const size_t *array, size_t count, size_t target) {
+    if (array == NULL || count == 0) return NULL;
+    return (size_t *)bsearch(&target, array, count, sizeof(size_t), cmp_size);
+}
+```#include <stdlib.h>
+
+static int cmp_size(const void *a, const void *b) {
+    const size_t *size_a = (const size_t *)a;
+    const size_t *size_b = (const size_t *)b;
+    
+    if (*size_a < *size_b) return -1;
+    if (*size_a > *size_b) return 1;
+    return 0;
+}
+
+static void sort_size_array(size_t *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(size_t), cmp_size);
+}
+
+static size_t *create_sorted_size_array(const size_t *source, size_t count) {
+    if (source == NULL || count == 0) return NULL;
+    
+    size_t *result = malloc(count * sizeof(size_t));
+    if (result == NULL) return NULL;
+    
+    for (size_t i = 0; i < count; i++) {
+        result[i] = source[i];
+    }
+    
+    qsort(result, count, sizeof(size_t), cmp_size);
+    return result;
+}static int cmp_size(const void *a, const void *b) {
+    const size_t *size_a = (const size_t *)a;
+    const size_t *size_b = (const size_t *)b;
+    
+    if (*size_a < *size_b) {
+        return -1;
+    } else if (*size_a > *size_b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static void sort_size_ascending(size_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(size_t), cmp_size);
+    }
+}
+
+static void sort_size_descending(size_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(size_t), cmp_size);
+        
+        for (size_t i = 0; i < count / 2; i++) {
+            size_t temp = array[i];
+            array[i] = array[count - 1 - i];
+            array[count - 1 - i] = temp;
+        }
+    }
+}
+```c
+#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+    static int cmp_name##_wrapper(const void *a, const void *b) { \
+        return cmp_name(*(const typeof(*((name*)0)) **)a, *(const typeof(*((name*)0)) **)b); \
+    } \
+    \
+    void sort_##name##_array(name **array, size_t count) { \
+        if (array == NULL || count == 0) { \
+            return; \
+        } \
+        qsort(array, count, sizeof(name *), cmp_name##_wrapper); \
+    } \
+    \
+    name **create_sorted_##name##_array(name **source, size_t count) { \
+        if (source == NULL || count == 0) { \
+            return NULL; \
+        } \
+        \
+        name **result = malloc(count * sizeof(name *)); \
+        if (result == NULL) { \
+            return NULL; \
+        } \
+        \
+        memcpy(result, source, count * sizeof(name *)); \
+        sort_##name##_array(result, count); \
+        return result; \
+    }
+``````c
+#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+static int name##_compare(const void *a, const void *b) { \
+    if (a == NULL || b == NULL) { \
+        return (a == NULL) - (b == NULL); \
+    } \
+    return cmp_name(a, b); \
+} \
+\
+static void name##_sort(void *base, size_t nmemb, size_t size) { \
+    if (base == NULL || size == 0 || nmemb <= 1) { \
+        return; \
+    } \
+    qsort(base, nmemb, size, name##_compare); \
+} \
+\
+static void *name##_bsearch(const void *key, const void *base, size_t nmemb, size_t size) { \
+    if (key == NULL || base == NULL || size == 0 || nmemb == 0) { \
+        return NULL; \
+    } \
+    return bsearch(key, base, nmemb, size, name##_compare); \
+}
+```static int cmp_name(const void *a, const void *b) {
+    const name *elem_a = (const name *)a;
+    const name *elem_b = (const name *)b;
+    return (elem_a < elem_b) ? -1 : (elem_a > elem_b) ? 1 : 0;
+}
+
+static void sort_##name(name *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(name), cmp_name);
+    }
+}
+
+static name *bsearch_##name(const name *key, const name *array, size_t count) {
+    if (key == NULL || array == NULL || count == 0) {
+        return NULL;
+    }
+    return (name *)bsearch(key, array, count, sizeof(name), cmp_name);
+}#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+static int compare_##name(const void *a, const void *b) { \
+    if (!a || !b) return 0; \
+    return cmp_name(a, b); \
+} \
+\
+static void swap_##name(void *a, void *b, size_t size) { \
+    if (!a || !b || size == 0) return; \
+    char temp[256]; \
+    if (size <= sizeof(temp)) { \
+        memcpy(temp, a, size); \
+        memcpy(a, b, size); \
+        memcpy(b, temp, size); \
+    } \
+} \
+\
+static void sort_##name(void *base, size_t nmemb, size_t size) { \
+    if (!base || nmemb <= 1 || size == 0) return; \
+    qsort(base, nmemb, size, compare_##name); \
+}```c
+#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+static int name##_compare(const void *a, const void *b) { \
+    if (!a || !b) return 0; \
+    return cmp_name(*(const typeof(*a)*)a, *(const typeof(*a)*)b); \
+} \
+\
+void name##_sort(void *array, size_t count) { \
+    if (!array || count == 0) return; \
+    qsort(array, count, sizeof(*(typeof(array))0), name##_compare); \
+} \
+\
+int name##_binary_search(const void *array, size_t count, const void *key) { \
+    if (!array || !key || count == 0) return -1; \
+    const void *result = bsearch(key, array, count, sizeof(*(typeof(array))0), name##_compare); \
+    if (!result) return -1; \
+    return ((const char*)result - (const char*)array) / sizeof(*(typeof(array))0); \
+}
+```#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+    void name##_sort(void *base, size_t nmemb, size_t size) { \
+        if (!base || size == 0) return; \
+        qsort(base, nmemb, size, cmp_name); \
+    } \
+    \
+    int name##_binary_search(const void *key, const void *base, size_t nmemb, size_t size) { \
+        if (!key || !base || size == 0) return -1; \
+        const void *result = bsearch(key, base, nmemb, size, cmp_name); \
+        return result ? (int)((const char *)result - (const char *)base) / (int)size : -1; \
+    }```c
+#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+static int name##_compare(const void *a, const void *b) { \
+    if (!a || !b) return 0; \
+    return cmp_name(*(const void **)a, *(const void **)b); \
+} \
+\
+static void name##_sort(void **array, size_t count) { \
+    if (!array || count == 0) return; \
+    qsort(array, count, sizeof(void *), name##_compare); \
+} \
+\
+static int name##_binary_search(void **array, size_t count, const void *key) { \
+    if (!array || !key || count == 0) return -1; \
+    \
+    size_t left = 0; \
+    size_t right = count - 1; \
+    \
+    while (left <= right) { \
+        size_t mid = left + (right - left) / 2; \
+        int cmp = cmp_name(array[mid], key); \
+        \
+        if (cmp == 0) return (int)mid; \
+        if (cmp < 0) left = mid + 1; \
+        else right = mid - 1; \
+        \
+        if (right == SIZE_MAX) break; \
+    } \
+    \
+    return -1; \
+}
+``````c
+#define DEFINE_SORT_FUNCTIONS(name, cmp_name) \
+static void name##_swap(void *a, void *b, size_t size) { \
+    if (a == b) return; \
+    char *ca = (char *)a; \
+    char *cb = (char *)b; \
+    for (size_t i = 0; i < size; i++) { \
+        char temp = ca[i]; \
+        ca[i] = cb[i]; \
+        cb[i] = temp; \
+    } \
+} \
+\
+static void name##_heapify(void *base, size_t n, size_t i, size_t size, int (*cmp)(const void *, const void *)) { \
+    size_t largest = i; \
+    size_t left = 2 * i + 1; \
+    size_t right = 2 * i + 2; \
+    \
+    if (left < n && cmp((char *)base + left * size, (char *)base + largest * size) > 0) { \
+        largest = left; \
+    } \
+    \
+    if (right < n && cmp((char *)base + right * size, (char *)base + largest * size) > 0) { \
+        largest = right; \
+    } \
+    \
+    if (largest != i) { \
+        name##_swap((char *)base + i * size, (char *)base + largest * size, size); \
+        name##_heapify(base, n, largest, size, cmp); \
+    } \
+} \
+\
+void name##_sort(void *base, size_t n, size_t size) { \
+    if (base == NULL || n <= 1 || size == 0) return; \
+    \
+    for (size_t i = n / 2; i > 0; i--) { \
+        name##_heapify(base, n, i - 1, size, cmp_name); \
+    } \
+    \
+    for (size_t i = n - 1; i > 0; i--) { \
+        name##_swap(base, (char *)base + i * size, size); \
+        name##_heapify(base, i, 0, size, cmp_name); \
+    } \
+}
+```
+int cmp_extension(const void *a, const void *b) {
+    if (!a || !b) {
+        return a ? 1 : (b ? -1 : 0);
+    }
+    
+    const char *ext_a = get_extension((const char *)a);
+    const char *ext_b = get_extension((const char *)b);
+    
+    if (!ext_a && !ext_b) {
+        return 0;
+    }
+    if (!ext_a) {
+        return -1;
+    }
+    if (!ext_b) {
+        return 1;
+    }
+    
+    return strcmp(ext_a, ext_b);
+}
+
+void sort_extension(void *base, size_t nmemb, size_t size) {
+    if (!base || nmemb == 0 || size == 0) {
+        return;
+    }
+    qsort(base, nmemb, size, cmp_extension);
+}typedef int (*extension_compare_fn)(const void *a, const void *b);
+
+static int extension_compare(const void *a, const void *b) {
+    return cmp_extension(a, b);
+}
+
+static void extension_sort(void *base, size_t nmemb, size_t size) {
+    qsort(base, nmemb, size, extension_compare);
+}
+
+static void *extension_bsearch(const void *key, const void *base, size_t nmemb, size_t size) {
+    return bsearch(key, base, nmemb, size, extension_compare);
+}static int cmp_extension(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    return strcmp((const char *)a, (const char *)b);
+}
+
+static void sort_extension(void **array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(void *), cmp_extension);
+}
+
+static void *bsearch_extension(const void *key, void **array, size_t count) {
+    if (!key || !array || count == 0) return NULL;
+    return bsearch(&key, array, count, sizeof(void *), cmp_extension);
+}typedef struct {
+    const char* extension;
+} extension_item_t;
+
+static int cmp_extension(const void* a, const void* b) {
+    if (!a || !b) return 0;
+    const extension_item_t* item_a = (const extension_item_t*)a;
+    const extension_item_t* item_b = (const extension_item_t*)b;
+    if (!item_a->extension || !item_b->extension) return 0;
+    return strcmp(item_a->extension, item_b->extension);
+}
+
+static void sort_extension(extension_item_t* array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(extension_item_t), cmp_extension);
+}
+
+static extension_item_t* bsearch_extension(const extension_item_t* key, const extension_item_t* array, size_t count) {
+    if (!key || !array || count == 0) return NULL;
+    return (extension_item_t*)bsearch(key, array, count, sizeof(extension_item_t), cmp_extension);
+}```c
+static int cmp_extension(const void *a, const void *b) {
+    if (a == NULL || b == NULL) {
+        return (a == NULL) - (b == NULL);
+    }
+    
+    const char *ext_a = get_extension((const char *)a);
+    const char *ext_b = get_extension((const char *)b);
+    
+    if (ext_a == NULL && ext_b == NULL) {
+        return 0;
+    }
+    if (ext_a == NULL) {
+        return -1;
+    }
+    if (ext_b == NULL) {
+        return 1;
+    }
+    
+    return strcmp(ext_a, ext_b);
+}
+
+void sort_extension(void *base, size_t nmemb, size_t size) {
+    if (base != NULL && nmemb > 0 && size > 0) {
+        qsort(base, nmemb, size, cmp_extension);
+    }
+}
+```static int cmp_extension(const void *a, const void *b) {
+    if (!a || !b) {
+        return 0;
+    }
+    
+    const char *ext_a = get_extension(a);
+    const char *ext_b = get_extension(b);
+    
+    if (!ext_a && !ext_b) {
+        return 0;
+    }
+    if (!ext_a) {
+        return -1;
+    }
+    if (!ext_b) {
+        return 1;
+    }
+    
+    return strcmp(ext_a, ext_b);
+}
+
+void sort_extension(void **array, size_t count) {
+    if (!array || count == 0) {
+        return;
+    }
+    qsort(array, count, sizeof(void*), cmp_extension);
+}static int
+cmp_extension(const void *a, const void *b)
+{
+    const struct file_entry *fa = (const struct file_entry *)a;
+    const struct file_entry *fb = (const struct file_entry *)b;
+    
+    const char *ext_a = get_file_extension(fa->name);
+    const char *ext_b = get_file_extension(fb->name);
+    
+    if (ext_a == NULL && ext_b == NULL) {
+        return 0;
+    }
+    if (ext_a == NULL) {
+        return -1;
+    }
+    if (ext_b == NULL) {
+        return 1;
+    }
+    
+    return strcmp(ext_a, ext_b);
+}
+
+void
+sort_by_extension(struct file_entry *entries, size_t count)
+{
+    if (entries == NULL || count == 0) {
+        return;
+    }
+    qsort(entries, count, sizeof(struct file_entry), cmp_extension);
+}
+
+void
+reverse_sort_by_extension(struct file_entry *entries, size_t count)
+{
+    sort_by_extension(entries, count);
+    if (entries != NULL && count > 1) {
+        reverse_entries(entries, count);
+    }
+}static int cmp_extension(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    const char *ext_a = get_extension((const char *)a);
+    const char *ext_b = get_extension((const char *)b);
+    if (!ext_a && !ext_b) return 0;
+    if (!ext_a) return -1;
+    if (!ext_b) return 1;
+    return strcasecmp(ext_a, ext_b);
+}
+
+static void sort_extension(void **array, size_t count) {
+    if (array && count > 1) {
+        qsort(array, count, sizeof(void *), cmp_extension);
+    }
+}
+
+static void reverse_sort_extension(void **array, size_t count) {
+    sort_extension(array, count);
+    if (array && count > 1) {
+        for (size_t i = 0; i < count / 2; i++) {
+            void *temp = array[i];
+            array[i] = array[count - 1 - i];
+            array[count - 1 - i] = temp;
+        }
+    }
+}
+static int cmp_width(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    const width_t *width_a = (const width_t *)a;
+    const width_t *width_b = (const width_t *)b;
+    if (width_a->value < width_b->value) return -1;
+    if (width_a->value > width_b->value) return 1;
+    return 0;
+}
+
+void sort_width_array(width_t *array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(width_t), cmp_width);
+}
+
+int binary_search_width(const width_t *array, size_t count, width_t key) {
+    if (!array || count == 0) return -1;
+    const width_t *result = bsearch(&key, array, count, sizeof(width_t), cmp_width);
+    return result ? (int)(result - array) : -1;
+}static int cmp_width(const void *a, const void *b) {
+    const int *width_a = (const int *)a;
+    const int *width_b = (const int *)b;
+    
+    if (*width_a < *width_b) return -1;
+    if (*width_a > *width_b) return 1;
+    return 0;
+}
+
+void sort_width_ascending(int *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(int), cmp_width);
+}
+
+void sort_width_descending(int *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(int), cmp_width);
+    
+    for (size_t i = 0; i < count / 2; i++) {
+        int temp = array[i];
+        array[i] = array[count - 1 - i];
+        array[count - 1 - i] = temp;
+    }
+}static int cmp_width(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    const width_t *width_a = (const width_t *)a;
+    const width_t *width_b = (const width_t *)b;
+    if (width_a->value < width_b->value) return -1;
+    if (width_a->value > width_b->value) return 1;
+    return 0;
+}
+
+static void sort_width(width_t *array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(width_t), cmp_width);
+}
+
+static width_t *bsearch_width(const width_t *key, const width_t *array, size_t count) {
+    if (!key || !array || count == 0) return NULL;
+    return (width_t *)bsearch(key, array, count, sizeof(width_t), cmp_width);
+}static int cmp_width(const void *a, const void *b) {
+    if (a == NULL && b == NULL) return 0;
+    if (a == NULL) return -1;
+    if (b == NULL) return 1;
+    
+    const width_t *width_a = (const width_t *)a;
+    const width_t *width_b = (const width_t *)b;
+    
+    if (width_a->value < width_b->value) return -1;
+    if (width_a->value > width_b->value) return 1;
+    return 0;
+}
+
+static void sort_width_array(width_t *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(width_t), cmp_width);
+}
+
+static width_t *find_width(width_t *array, size_t count, const width_t *key) {
+    if (array == NULL || key == NULL || count == 0) return NULL;
+    return (width_t *)bsearch(key, array, count, sizeof(width_t), cmp_width);
+}static int cmp_width(const void *a, const void *b) {
+    const width_t *width_a = (const width_t *)a;
+    const width_t *width_b = (const width_t *)b;
+    
+    if (width_a->value < width_b->value) return -1;
+    if (width_a->value > width_b->value) return 1;
+    return 0;
+}
+
+static void sort_width_array(width_t *array, size_t count) {
+    if (array == NULL || count == 0) return;
+    qsort(array, count, sizeof(width_t), cmp_width);
+}
+
+static width_t *sort_width_copy(const width_t *array, size_t count) {
+    if (array == NULL || count == 0) return NULL;
+    
+    width_t *copy = malloc(count * sizeof(width_t));
+    if (copy == NULL) return NULL;
+    
+    memcpy(copy, array, count * sizeof(width_t));
+    qsort(copy, count, sizeof(width_t), cmp_width);
+    return copy;
+}static int cmp_width(const void *a, const void *b) {
+    const width_t *wa = (const width_t *)a;
+    const width_t *wb = (const width_t *)b;
+    
+    if (wa->width < wb->width) return -1;
+    if (wa->width > wb->width) return 1;
+    return 0;
+}
+
+void sort_width_array(width_t *array, size_t count) {
+    if (array != NULL && count > 1) {
+        qsort(array, count, sizeof(width_t), cmp_width);
+    }
+}
+
+width_t *find_width(width_t *array, size_t count, width_t key) {
     if (array == NULL || count == 0) {
         return NULL;
     }
-    
-    width *min = &array[0];
-    for (size_t i = 1; i < count; i++) {
-        if (cmp_width(&array[i], min) < 0) {
-            min = &array[i];
-        }
-    }
-    return min;
-}
-
-static width* width_find_max(width *array, size_t count) {
-    if (array == NULL || count == 0) {
-        return NULL;
-    }
-    
-    width *max = &array[0];
-    for (size_t i = 1; i < count; i++) {
-        if (cmp_width(&array[i], max) > 0) {
-            max = &array[i];
-        }
-    }
-    return max;
-}DEFINE_SORT_FUNCTIONS(width, cmp_width)int cmp_width(const void *a, const void *b) {
-    const struct width *wa = a;
-    const struct width *wb = b;
+    return (width_t *)bsearch(&key, array, count, sizeof(width_t), cmp_width);
+}static int cmp_width(const void *a, const void *b) {
+    const width_t *wa = (const width_t *)a;
+    const width_t *wb = (const width_t *)b;
     
     if (wa->value < wb->value) return -1;
     if (wa->value > wb->value) return 1;
     return 0;
 }
 
-void sort_width(struct width *array, size_t count) {
-    if (array == NULL || count == 0) return;
-    qsort(array, count, sizeof(struct width), cmp_width);
-}typedef struct {
-    int (*compare)(const void *, const void *);
-} width_sort_context;
-
-static int width_compare_wrapper(const void *a, const void *b, void *context) {
-    width_sort_context *ctx = (width_sort_context *)context;
-    return ctx->compare(a, b);
+static void swap_width(width_t *a, width_t *b) {
+    width_t temp = *a;
+    *a = *b;
+    *b = temp;
 }
 
-void sort_width(void *base, size_t nmemb, size_t size) {
-    if (base == NULL || nmemb == 0 || size == 0) {
-        return;
-    }
+static void sort_width(width_t *array, size_t count) {
+    if (array == NULL || count <= 1) return;
     
-    width_sort_context ctx = { .compare = cmp_width };
-    qsort_r(base, nmemb, size, width_compare_wrapper, &ctx);
+    qsort(array, count, sizeof(width_t), cmp_width);
+}static int cmp_width(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    
+    const width_t *width_a = (const width_t *)a;
+    const width_t *width_b = (const width_t *)b;
+    
+    if (width_a->value < width_b->value) return -1;
+    if (width_a->value > width_b->value) return 1;
+    return 0;
 }
 
-void sort_width_r(void *base, size_t nmemb, size_t size, 
-                  int (*compare)(const void *, const void *, void *), void *arg) {
-    if (base == NULL || nmemb == 0 || size == 0 || compare == NULL) {
-        return;
-    }
-    
-    qsort_r(base, nmemb, size, compare, arg);
-}static void sort_width(void **array, size_t count) {
-    if (array == NULL || count <= 1) {
-        return;
-    }
-    
-    for (size_t i = 0; i < count - 1; i++) {
-        for (size_t j = 0; j < count - i - 1; j++) {
-            if (cmp_width(array[j], array[j + 1]) > 0) {
-                void *temp = array[j];
-                array[j] = array[j + 1];
-                array[j + 1] = temp;
-            }
-        }
-    }
+void sort_width_asc(width_t *array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(width_t), cmp_width);
 }
 
-static void *find_min_width(void **array, size_t count) {
-    if (array == NULL || count == 0) {
-        return NULL;
-    }
-    
-    void *min = array[0];
-    for (size_t i = 1; i < count; i++) {
-        if (cmp_width(array[i], min) < 0) {
-            min = array[i];
-        }
-    }
-    return min;
+static int cmp_width_desc(const void *a, const void *b) {
+    return -cmp_width(a, b);
 }
 
-static void *find_max_width(void **array, size_t count) {
-    if (array == NULL || count == 0) {
-        return NULL;
-    }
-    
-    void *max = array[0];
-    for (size_t i = 1; i < count; i++) {
-        if (cmp_width(array[i], max) > 0) {
-            max = array[i];
-        }
-    }
-    return max;
+void sort_width_desc(width_t *array, size_t count) {
+    if (!array || count == 0) return;
+    qsort(array, count, sizeof(width_t), cmp_width_desc);
 }
 
 /* Compare file versions.
@@ -5374,41 +5476,57 @@ static void *find_max_width(void **array, size_t count) {
    because they all use xstrcoll (either as the primary or secondary
    sort key), and xstrcoll has the ability to do a longjmp if strcoll fails for
    locale reasons.  */
-static int cmp_version(struct fileinfo const *a, struct fileinfo const *b)
+static int
+cmp_version (struct fileinfo const *a, struct fileinfo const *b)
 {
-    int diff = filevercmp(a->name, b->name);
-    if (diff != 0) {
-        return diff;
-    }
-    return strcmp(a->name, b->name);
+  if (!a || !b || !a->name || !b->name) {
+    return 0;
+  }
+  
+  int diff = filevercmp (a->name, b->name);
+  return diff ? diff : strcmp (a->name, b->name);
 }
 
-static int xstrcoll_version(V a, V b)
+static int
+xstrcoll_version (V a, V b)
 {
-    if (a == NULL || b == NULL) {
-        if (a == NULL && b == NULL) {
-            return 0;
-        }
-        return (a == NULL) ? -1 : 1;
-    }
-    return cmp_version(a, b);
+  if (a == NULL && b == NULL) {
+    return 0;
+  }
+  if (a == NULL) {
+    return -1;
+  }
+  if (b == NULL) {
+    return 1;
+  }
+  
+  return cmp_version (a, b);
 }
 static int
 rev_xstrcoll_version (V a, V b)
 {
+  if (a == NULL && b == NULL) return 0;
+  if (a == NULL) return 1;
+  if (b == NULL) return -1;
+  
   return cmp_version (b, a);
 }
-static int xstrcoll_df_version(V a, V b)
+static int
+xstrcoll_df_version (V a, V b)
 {
-    if (a == NULL || b == NULL) {
-        return 0;
-    }
-    return dirfirst_check(a, b, xstrcoll_version);
+  if (a == NULL || b == NULL) {
+    return (a == NULL) - (b == NULL);
+  }
+  return dirfirst_check (a, b, xstrcoll_version);
 }
 static int
-rev_xstrcoll_df_version (V a, V b)
+rev_xstrcoll_df_version(V a, V b)
 {
-  return dirfirst_check (a, b, rev_xstrcoll_version);
+    if (a == NULL || b == NULL) {
+        return (a == NULL) - (b == NULL);
+    }
+    
+    return dirfirst_check(a, b, rev_xstrcoll_version);
 }
 
 
@@ -5478,15 +5596,11 @@ static_assert (ARRAY_CARDINALITY (sort_functions)
 
 /* Set up SORTED_FILE to point to the in-use entries in CWD_FILE, in order.  */
 
-static void initialize_ordering_vector(void)
+static void
+initialize_ordering_vector(void)
 {
-    if (sorted_file == NULL || cwd_file == NULL) {
-        return;
-    }
-    
-    for (idx_t i = 0; i < cwd_n_used; i++) {
+    for (idx_t i = 0; i < cwd_n_used; i++)
         sorted_file[i] = &cwd_file[i];
-    }
 }
 
 /* Cache values based on attributes global to all files.  */
@@ -5494,20 +5608,23 @@ static void initialize_ordering_vector(void)
 static void
 update_current_files_info (void)
 {
-  if (sort_type != sort_width && 
-      (!line_length || (format != many_per_line && format != horizontal)))
-    {
-      return;
-    }
+  if (!should_cache_width())
+    return;
 
   for (idx_t i = 0; i < cwd_n_used; i++)
     {
-      struct fileinfo *f = sorted_file[i];
-      if (f != NULL)
+      if (sorted_file[i] != NULL)
         {
-          f->width = fileinfo_name_width (f);
+          sorted_file[i]->width = fileinfo_name_width (sorted_file[i]);
         }
     }
+}
+
+static bool
+should_cache_width (void)
+{
+  return (sort_type == sort_width) ||
+         (line_length && (format == many_per_line || format == horizontal));
 }
 
 /* Sort the files now in the table.  */
@@ -5516,12 +5633,19 @@ static void
 sort_files (void)
 {
   bool use_strcmp;
+  size_t required_size;
 
-  if (sorted_file_alloc < cwd_n_used + (cwd_n_used >> 1))
+  if (cwd_n_used == 0)
+    return;
+
+  required_size = cwd_n_used + (cwd_n_used >> 1);
+  if (sorted_file_alloc < required_size)
     {
       free (sorted_file);
+      sorted_file = xinmalloc (cwd_n_used, 3 * sizeof *sorted_file);
+      if (!sorted_file)
+        return;
       sorted_file_alloc = 3 * cwd_n_used;
-      sorted_file = xinmalloc (cwd_n_used, sorted_file_alloc * sizeof *sorted_file);
     }
 
   initialize_ordering_vector ();
@@ -5538,22 +5662,23 @@ sort_files (void)
   else
     {
       use_strcmp = true;
-      affirm (sort_type != sort_version);
+      if (sort_type == sort_version)
+        return;
       initialize_ordering_vector ();
     }
 
   int sort_index = sort_type;
   if (sort_type == sort_time)
+    sort_index += time_type;
+
+  if (sort_index >= 0 && sort_index < MAX_SORT_FUNCTIONS &&
+      use_strcmp >= 0 && use_strcmp < 2 &&
+      sort_reverse >= 0 && sort_reverse < 2 &&
+      directories_first >= 0 && directories_first < 2)
     {
-      sort_index += time_type;
+      mpsort ((void const **) sorted_file, cwd_n_used,
+              sort_functions[sort_index][use_strcmp][sort_reverse][directories_first]);
     }
-
-  qsort_function comparator = sort_functions[sort_index]
-                                             [use_strcmp]
-                                             [sort_reverse]
-                                             [directories_first];
-
-  mpsort ((void const **) sorted_file, cwd_n_used, comparator);
 }
 
 /* List all the files now in the table.  */
@@ -5561,48 +5686,48 @@ sort_files (void)
 static void
 print_current_files (void)
 {
-  if (format == one_per_line)
+  if (cwd_n_used == 0)
+    return;
+
+  switch (format)
     {
+    case one_per_line:
       for (idx_t i = 0; i < cwd_n_used; i++)
         {
           print_file_name_and_frills (sorted_file[i], 0);
           putchar (eolbyte);
         }
-      return;
-    }
+      break;
 
-  if (format == long_format)
-    {
+    case many_per_line:
+      if (line_length == 0)
+        print_with_separator (' ');
+      else
+        print_many_per_line ();
+      break;
+
+    case horizontal:
+      if (line_length == 0)
+        print_with_separator (' ');
+      else
+        print_horizontal ();
+      break;
+
+    case with_commas:
+      print_with_separator (',');
+      break;
+
+    case long_format:
       for (idx_t i = 0; i < cwd_n_used; i++)
         {
           set_normal_color ();
           print_long_format (sorted_file[i]);
           dired_outbyte (eolbyte);
         }
-      return;
-    }
+      break;
 
-  if (format == with_commas)
-    {
-      print_with_separator (',');
-      return;
-    }
-
-  if (format == many_per_line)
-    {
-      if (line_length == 0)
-        print_with_separator (' ');
-      else
-        print_many_per_line ();
-      return;
-    }
-
-  if (format == horizontal)
-    {
-      if (line_length == 0)
-        print_with_separator (' ');
-      else
-        print_horizontal ();
+    default:
+      break;
     }
 }
 
@@ -5614,22 +5739,21 @@ static size_t
 align_nstrftime (char *buf, size_t size, bool recent, struct tm const *tm,
                  timezone_t tz, int ns)
 {
-  if (buf == NULL || tm == NULL || size == 0) {
+  if (!buf || !tm || size == 0) {
     return 0;
   }
   
-  size_t recent_index = recent ? 1 : 0;
-  char const *nfmt = NULL;
-  
+  const char *nfmt;
   if (use_abformat) {
-    if (tm->tm_mon >= 0 && tm->tm_mon < 12) {
-      nfmt = abformat[recent_index][tm->tm_mon];
+    if (tm->tm_mon < 0 || tm->tm_mon >= 12) {
+      return 0;
     }
+    nfmt = abformat[recent][tm->tm_mon];
   } else {
-    nfmt = long_time_format[recent_index];
+    nfmt = long_time_format[recent];
   }
   
-  if (nfmt == NULL) {
+  if (!nfmt) {
     return 0;
   }
   
@@ -5651,22 +5775,18 @@ long_time_expected_width (void)
   struct tm tm;
   char buf[TIME_STAMP_LEN_MAXIMUM + 1];
 
+  width = 0;
+
   if (!localtime_rz (localtz, &epoch, &tm))
-    {
-      width = 0;
-      return width;
-    }
+    return width;
 
   size_t len = align_nstrftime (buf, sizeof buf, false, &tm, localtz, 0);
   if (len == 0)
-    {
-      width = 0;
-      return width;
-    }
+    return width;
 
-  width = mbsnwidth (buf, len, MBSWIDTH_FLAGS);
-  if (width < 0)
-    width = 0;
+  int calculated_width = mbsnwidth (buf, len, MBSWIDTH_FLAGS);
+  if (calculated_width >= 0)
+    width = calculated_width;
 
   return width;
 }
@@ -5680,18 +5800,18 @@ format_user_or_group (char const *name, uintmax_t id, int width)
   if (name)
     {
       int name_width = mbswidth (name, MBSWIDTH_FLAGS);
-      int pad = 0;
+      if (name_width < 0)
+        name_width = 0;
       
-      if (name_width >= 0 && width > name_width)
-        {
-          pad = width - name_width;
-        }
+      int width_gap = width - name_width;
+      int pad = (width_gap > 0) ? width_gap : 0;
       
       dired_outstring (name);
       
-      for (int i = 0; i < pad; i++)
+      while (pad > 0)
         {
           dired_outbyte (' ');
+          pad--;
         }
     }
   else
@@ -5706,15 +5826,17 @@ format_user_or_group (char const *name, uintmax_t id, int width)
 static void
 format_user (uid_t u, int width, bool stat_ok)
 {
-  const char *user_name = NULL;
+  const char* user_name = nullptr;
   
-  if (!stat_ok) {
+  if (stat_ok) {
+    if (!numeric_ids) {
+      user_name = getuser(u);
+    }
+  } else {
     user_name = "?";
-  } else if (!numeric_ids) {
-    user_name = getuser (u);
   }
   
-  format_user_or_group (user_name, u, width);
+  format_user_or_group(user_name, u, width);
 }
 
 /* Likewise, for groups.  */
@@ -5722,15 +5844,15 @@ format_user (uid_t u, int width, bool stat_ok)
 static void
 format_group (gid_t g, int width, bool stat_ok)
 {
-  const char *group_name = NULL;
+  const char* group_name = NULL;
   
   if (!stat_ok) {
     group_name = "?";
   } else if (!numeric_ids) {
-    group_name = getgroup (g);
+    group_name = getgroup(g);
   }
   
-  format_user_or_group (group_name, g, width);
+  format_user_or_group(group_name, g, width);
 }
 
 /* Return the number of columns that format_user_or_group will print,
@@ -5739,8 +5861,7 @@ format_group (gid_t g, int width, bool stat_ok)
 static int
 format_user_or_group_width (char const *name, uintmax_t id)
 {
-  if (name != NULL)
-  {
+  if (name != NULL) {
     return mbswidth (name, MBSWIDTH_FLAGS);
   }
   
@@ -5773,270 +5894,232 @@ static char *
 format_inode (char buf[INT_BUFSIZE_BOUND (uintmax_t)],
               const struct fileinfo *f)
 {
-  if (f == NULL) {
+  if (!f || !f->stat_ok || f->stat.st_ino == NOT_AN_INODE_NUMBER) {
     return (char *) "?";
   }
-  
-  if (!f->stat_ok) {
-    return (char *) "?";
-  }
-  
-  if (f->stat.st_ino == NOT_AN_INODE_NUMBER) {
-    return (char *) "?";
-  }
-  
   return umaxtostr (f->stat.st_ino, buf);
 }
 
 /* Print information about F in long format.  */
 static void
-print_long_format (const struct fileinfo *f)
+format_mode_string(const struct fileinfo *f, char *modebuf)
 {
-  char modebuf[12];
-  char buf[LONGEST_HUMAN_READABLE + 1
-           + LONGEST_HUMAN_READABLE + 1
-           + sizeof (modebuf) - 1 + 1
-           + INT_BUFSIZE_BOUND (uintmax_t)
-           + LONGEST_HUMAN_READABLE + 2
-           + LONGEST_HUMAN_READABLE + 1
-           + TIME_STAMP_LEN_MAXIMUM + 1];
-  size_t s;
-  char *p;
-  struct timespec when_timespec;
-  struct tm when_local;
-  bool btime_ok = true;
-
-  build_mode_string(f, modebuf);
-  when_timespec = get_time_for_display(f, &btime_ok);
-
-  p = buf;
-  p = append_inode_info(p, f);
-  p = append_block_size_info(p, f);
-  p = append_mode_and_links(p, f, modebuf);
-
-  dired_indent();
-  p = handle_ownership_info(buf, p, f);
-  p = append_size_or_device_info(p, f);
-
-  s = format_time_string(p, f, &when_timespec, &when_local, btime_ok);
-  p = finalize_time_output(p, s, f, &when_timespec, btime_ok);
-
-  dired_outbuf(buf, p - buf);
-  size_t w = print_name_with_quoting(f, false, &dired_obstack, p - buf);
-
-  print_link_or_indicator(f, p, buf, w);
-}
-
-static void build_mode_string(const struct fileinfo *f, char *modebuf)
-{
-  if (f->stat_ok)
-    filemodestring(&f->stat, modebuf);
-  else
-  {
-    modebuf[0] = filetype_letter[f->filetype];
-    memset(modebuf + 1, '?', 10);
-    modebuf[11] = '\0';
-  }
-  
-  if (!any_has_acl)
-    modebuf[10] = '\0';
-  else if (f->acl_type == ACL_T_LSM_CONTEXT_ONLY)
-    modebuf[10] = '.';
-  else if (f->acl_type == ACL_T_YES)
-    modebuf[10] = '+';
-  else if (f->acl_type == ACL_T_UNKNOWN)
-    modebuf[10] = '?';
-}
-
-static struct timespec get_time_for_display(const struct fileinfo *f, bool *btime_ok)
-{
-  struct timespec when_timespec;
-  
-  switch (time_type)
-  {
-    case time_ctime:
-      when_timespec = get_stat_ctime(&f->stat);
-      break;
-    case time_mtime:
-      when_timespec = get_stat_mtime(&f->stat);
-      break;
-    case time_atime:
-      when_timespec = get_stat_atime(&f->stat);
-      break;
-    case time_btime:
-      when_timespec = get_stat_btime(&f->stat);
-      if (when_timespec.tv_sec == -1 && when_timespec.tv_nsec == -1)
-        *btime_ok = false;
-      break;
-    default:
-      unreachable();
-  }
-  
-  return when_timespec;
-}
-
-static char* append_inode_info(char *p, const struct fileinfo *f)
-{
-  if (!print_inode)
-    return p;
-    
-  char hbuf[INT_BUFSIZE_BOUND(uintmax_t)];
-  p += sprintf(p, "%*s ", inode_number_width, format_inode(hbuf, f));
-  return p;
-}
-
-static char* append_block_size_info(char *p, const struct fileinfo *f)
-{
-  if (!print_block_size)
-    return p;
-    
-  char hbuf[LONGEST_HUMAN_READABLE + 1];
-  char const *blocks = (!f->stat_ok
-                        ? "?"
-                        : human_readable(STP_NBLOCKS(&f->stat), hbuf, human_output_opts,
-                                       ST_NBLOCKSIZE, output_block_size));
-  int blocks_width = mbswidth(blocks, MBSWIDTH_FLAGS);
-  
-  for (int pad = blocks_width < 0 ? 0 : block_size_width - blocks_width;
-       0 < pad; pad--)
-    *p++ = ' ';
-    
-  while ((*p++ = *blocks++))
-    continue;
-  p[-1] = ' ';
-  
-  return p;
-}
-
-static char* append_mode_and_links(char *p, const struct fileinfo *f, const char *modebuf)
-{
-  char hbuf[INT_BUFSIZE_BOUND(uintmax_t)];
-  p += sprintf(p, "%s %*s ", modebuf, nlink_width,
-              !f->stat_ok ? "?" : umaxtostr(f->stat.st_nlink, hbuf));
-  return p;
-}
-
-static char* handle_ownership_info(char *buf, char *p, const struct fileinfo *f)
-{
-  if (!print_owner && !print_group && !print_author && !print_scontext)
-    return p;
-    
-  dired_outbuf(buf, p - buf);
-  
-  if (print_owner)
-    format_user(f->stat.st_uid, owner_width, f->stat_ok);
-  if (print_group)
-    format_group(f->stat.st_gid, group_width, f->stat_ok);
-  if (print_author)
-    format_user(f->stat.st_author, author_width, f->stat_ok);
-  if (print_scontext)
-    format_user_or_group(f->scontext, 0, scontext_width);
-    
-  return buf;
-}
-
-static char* append_size_or_device_info(char *p, const struct fileinfo *f)
-{
-  if (f->stat_ok && (S_ISCHR(f->stat.st_mode) || S_ISBLK(f->stat.st_mode)))
-  {
-    char majorbuf[INT_BUFSIZE_BOUND(uintmax_t)];
-    char minorbuf[INT_BUFSIZE_BOUND(uintmax_t)];
-    int blanks_width = file_size_width - (major_device_number_width + 2 + minor_device_number_width);
-    
-    p += sprintf(p, "%*s, %*s ",
-                major_device_number_width + MAX(0, blanks_width),
-                umaxtostr(major(f->stat.st_rdev), majorbuf),
-                minor_device_number_width,
-                umaxtostr(minor(f->stat.st_rdev), minorbuf));
-  }
-  else
-  {
-    char hbuf[LONGEST_HUMAN_READABLE + 1];
-    char const *size = (!f->stat_ok
-                       ? "?"
-                       : human_readable(unsigned_file_size(f->stat.st_size),
-                                      hbuf, file_human_output_opts, 1,
-                                      file_output_block_size));
-    int size_width = mbswidth(size, MBSWIDTH_FLAGS);
-    
-    for (int pad = size_width < 0 ? 0 : file_size_width - size_width;
-         0 < pad; pad--)
-      *p++ = ' ';
-      
-    while ((*p++ = *size++))
-      continue;
-    p[-1] = ' ';
-  }
-  
-  return p;
-}
-
-static size_t format_time_string(char *p, const struct fileinfo *f, 
-                                 const struct timespec *when_timespec,
-                                 struct tm *when_local, bool btime_ok)
-{
-  size_t s = 0;
-  *p = '\1';
-  
-  if (!f->stat_ok || !btime_ok)
-    return 0;
-    
-  if (!localtime_rz(localtz, &when_timespec->tv_sec, when_local))
-    return 0;
-    
-  struct timespec six_months_ago;
-  
-  if (timespec_cmp(current_time, *when_timespec) < 0)
-    gettime(&current_time);
-    
-  six_months_ago.tv_sec = current_time.tv_sec - 31556952 / 2;
-  six_months_ago.tv_nsec = current_time.tv_nsec;
-  
-  bool recent = (timespec_cmp(six_months_ago, *when_timespec) < 0
-                && timespec_cmp(*when_timespec, current_time) < 0);
-                
-  s = align_nstrftime(p, TIME_STAMP_LEN_MAXIMUM + 1, recent,
-                     when_local, localtz, when_timespec->tv_nsec);
-  return s;
-}
-
-static char* finalize_time_output(char *p, size_t s, const struct fileinfo *f,
-                                  const struct timespec *when_timespec, bool btime_ok)
-{
-  if (s || !*p)
-  {
-    p += s;
-    *p++ = ' ';
-  }
-  else
-  {
-    char hbuf[INT_BUFSIZE_BOUND(intmax_t)];
-    p += sprintf(p, "%*s ", long_time_expected_width(),
-                (!f->stat_ok || !btime_ok
-                 ? "?"
-                 : timetostr(when_timespec->tv_sec, hbuf)));
-  }
-  
-  return p;
-}
-
-static void print_link_or_indicator(const struct fileinfo *f, const char *p,
-                                   const char *buf, size_t w)
-{
-  if (f->filetype == symbolic_link)
-  {
-    if (f->linkname)
-    {
-      dired_outstring(" -> ");
-      print_name_with_quoting(f, true, nullptr, (p - buf) + w + 4);
-      if (indicator_style != none)
-        print_type_indicator(true, f->linkmode, unknown);
+    if (f->stat_ok) {
+        filemodestring(&f->stat, modebuf);
+    } else {
+        modebuf[0] = filetype_letter[f->filetype];
+        memset(modebuf + 1, '?', 10);
+        modebuf[11] = '\0';
     }
-  }
-  else if (indicator_style != none)
-  {
-    print_type_indicator(f->stat_ok, f->stat.st_mode, f->filetype);
-  }
+    
+    if (!any_has_acl) {
+        modebuf[10] = '\0';
+    } else if (f->acl_type == ACL_T_LSM_CONTEXT_ONLY) {
+        modebuf[10] = '.';
+    } else if (f->acl_type == ACL_T_YES) {
+        modebuf[10] = '+';
+    } else if (f->acl_type == ACL_T_UNKNOWN) {
+        modebuf[10] = '?';
+    }
+}
+
+static struct timespec
+get_timespec_for_type(const struct fileinfo *f, bool *btime_ok)
+{
+    struct timespec when_timespec;
+    *btime_ok = true;
+    
+    switch (time_type) {
+    case time_ctime:
+        when_timespec = get_stat_ctime(&f->stat);
+        break;
+    case time_mtime:
+        when_timespec = get_stat_mtime(&f->stat);
+        break;
+    case time_atime:
+        when_timespec = get_stat_atime(&f->stat);
+        break;
+    case time_btime:
+        when_timespec = get_stat_btime(&f->stat);
+        if (when_timespec.tv_sec == -1 && when_timespec.tv_nsec == -1)
+            *btime_ok = false;
+        break;
+    case time_numtypes:
+    default:
+        unreachable();
+    }
+    
+    return when_timespec;
+}
+
+static char *
+format_inode_if_needed(char *p, const struct fileinfo *f)
+{
+    if (print_inode) {
+        char hbuf[INT_BUFSIZE_BOUND(uintmax_t)];
+        p += sprintf(p, "%*s ", inode_number_width, format_inode(hbuf, f));
+    }
+    return p;
+}
+
+static char *
+format_block_size_if_needed(char *p, const struct fileinfo *f)
+{
+    if (print_block_size) {
+        char hbuf[LONGEST_HUMAN_READABLE + 1];
+        const char *blocks = (!f->stat_ok) ? "?" :
+            human_readable(STP_NBLOCKS(&f->stat), hbuf, human_output_opts,
+                         ST_NBLOCKSIZE, output_block_size);
+        int blocks_width = mbswidth(blocks, MBSWIDTH_FLAGS);
+        int pad = (blocks_width < 0) ? 0 : block_size_width - blocks_width;
+        
+        for (int i = 0; i < pad; i++)
+            *p++ = ' ';
+        while ((*p++ = *blocks++))
+            continue;
+        p[-1] = ' ';
+    }
+    return p;
+}
+
+static char *
+format_mode_and_links(char *p, const struct fileinfo *f, const char *modebuf)
+{
+    char hbuf[INT_BUFSIZE_BOUND(uintmax_t)];
+    p += sprintf(p, "%s %*s ", modebuf, nlink_width,
+                !f->stat_ok ? "?" : umaxtostr(f->stat.st_nlink, hbuf));
+    return p;
+}
+
+static void
+format_owner_group_info(const struct fileinfo *f, const char *buf, size_t buf_len)
+{
+    if (print_owner || print_group || print_author || print_scontext) {
+        dired_outbuf(buf, buf_len);
+        
+        if (print_owner)
+            format_user(f->stat.st_uid, owner_width, f->stat_ok);
+        if (print_group)
+            format_group(f->stat.st_gid, group_width, f->stat_ok);
+        if (print_author)
+            format_user(f->stat.st_author, author_width, f->stat_ok);
+        if (print_scontext)
+            format_user_or_group(f->scontext, 0, scontext_width);
+    }
+}
+
+static char *
+format_device_or_size(char *p, const struct fileinfo *f)
+{
+    if (f->stat_ok && (S_ISCHR(f->stat.st_mode) || S_ISBLK(f->stat.st_mode))) {
+        char majorbuf[INT_BUFSIZE_BOUND(uintmax_t)];
+        char minorbuf[INT_BUFSIZE_BOUND(uintmax_t)];
+        int blanks_width = file_size_width - (major_device_number_width + 2 + minor_device_number_width);
+        p += sprintf(p, "%*s, %*s ",
+                    major_device_number_width + MAX(0, blanks_width),
+                    umaxtostr(major(f->stat.st_rdev), majorbuf),
+                    minor_device_number_width,
+                    umaxtostr(minor(f->stat.st_rdev), minorbuf));
+    } else {
+        char hbuf[LONGEST_HUMAN_READABLE + 1];
+        const char *size = (!f->stat_ok) ? "?" :
+            human_readable(unsigned_file_size(f->stat.st_size), hbuf,
+                         file_human_output_opts, 1, file_output_block_size);
+        int size_width = mbswidth(size, MBSWIDTH_FLAGS);
+        int pad = (size_width < 0) ? 0 : file_size_width - size_width;
+        
+        for (int i = 0; i < pad; i++)
+            *p++ = ' ';
+        while ((*p++ = *size++))
+            continue;
+        p[-1] = ' ';
+    }
+    return p;
+}
+
+static char *
+format_timestamp(char *p, const struct fileinfo *f, struct timespec when_timespec, bool btime_ok)
+{
+    size_t s = 0;
+    *p = '\1';
+    
+    if (f->stat_ok && btime_ok) {
+        struct tm when_local;
+        if (localtime_rz(localtz, &when_timespec.tv_sec, &when_local)) {
+            if (timespec_cmp(current_time, when_timespec) < 0)
+                gettime(&current_time);
+                
+            struct timespec six_months_ago;
+            six_months_ago.tv_sec = current_time.tv_sec - 31556952 / 2;
+            six_months_ago.tv_nsec = current_time.tv_nsec;
+            
+            bool recent = (timespec_cmp(six_months_ago, when_timespec) < 0 &&
+                          timespec_cmp(when_timespec, current_time) < 0);
+                          
+            s = align_nstrftime(p, TIME_STAMP_LEN_MAXIMUM + 1, recent,
+                               &when_local, localtz, when_timespec.tv_nsec);
+        }
+    }
+    
+    if (s || !*p) {
+        p += s;
+        *p++ = ' ';
+    } else {
+        char hbuf[INT_BUFSIZE_BOUND(intmax_t)];
+        p += sprintf(p, "%*s ", long_time_expected_width(),
+                    (!f->stat_ok || !btime_ok) ? "?" :
+                    timetostr(when_timespec.tv_sec, hbuf));
+    }
+    
+    return p;
+}
+
+static void
+format_file_link(const struct fileinfo *f, size_t name_width)
+{
+    if (f->filetype == symbolic_link) {
+        if (f->linkname) {
+            dired_outstring(" -> ");
+            print_name_with_quoting(f, true, nullptr, name_width + 4);
+            if (indicator_style != none)
+                print_type_indicator(true, f->linkmode, unknown);
+        }
+    } else if (indicator_style != none) {
+        print_type_indicator(f->stat_ok, f->stat.st_mode, f->filetype);
+    }
+}
+
+static void
+print_long_format(const struct fileinfo *f)
+{
+    char modebuf[12];
+    char buf[LONGEST_HUMAN_READABLE + 1 + LONGEST_HUMAN_READABLE + 1 + 
+             sizeof(modebuf) - 1 + 1 + INT_BUFSIZE_BOUND(uintmax_t) +
+             LONGEST_HUMAN_READABLE + 2 + LONGEST_HUMAN_READABLE + 1 +
+             TIME_STAMP_LEN_MAXIMUM + 1];
+    char *p;
+    bool btime_ok;
+    
+    format_mode_string(f, modebuf);
+    struct timespec when_timespec = get_timespec_for_type(f, &btime_ok);
+    
+    p = buf;
+    p = format_inode_if_needed(p, f);
+    p = format_block_size_if_needed(p, f);
+    p = format_mode_and_links(p, f, modebuf);
+    
+    dired_indent();
+    format_owner_group_info(f, buf, p - buf);
+    
+    if (print_owner || print_group || print_author || print_scontext)
+        p = buf;
+        
+    p = format_device_or_size(p, f);
+    p = format_timestamp(p, f, when_timespec, btime_ok);
+    
+    dired_outbuf(buf, p - buf);
+    size_t name_width = print_name_with_quoting(f, false, &dired_obstack, p - buf);
+    format_file_link(f, name_width);
 }
 
 /* Write to *BUF a quoted representation of the file name NAME, if non-null,
@@ -6047,6 +6130,145 @@ static void print_link_or_indicator(const struct fileinfo *f, const char *p,
    representation into WIDTH, if non-null.
    Store into PAD whether an initial space is needed for padding.
    Return the number of bytes in *BUF.  */
+
+static bool is_printable_ascii(char c)
+{
+  switch (c)
+    {
+      case ' ': case '!': case '"': case '#': case '%':
+      case '&': case '\'': case '(': case ')': case '*':
+      case '+': case ',': case '-': case '.': case '/':
+      case '0': case '1': case '2': case '3': case '4':
+      case '5': case '6': case '7': case '8': case '9':
+      case ':': case ';': case '<': case '=': case '>':
+      case '?':
+      case 'A': case 'B': case 'C': case 'D': case 'E':
+      case 'F': case 'G': case 'H': case 'I': case 'J':
+      case 'K': case 'L': case 'M': case 'N': case 'O':
+      case 'P': case 'Q': case 'R': case 'S': case 'T':
+      case 'U': case 'V': case 'W': case 'X': case 'Y':
+      case 'Z':
+      case '[': case '\\': case ']': case '^': case '_':
+      case 'a': case 'b': case 'c': case 'd': case 'e':
+      case 'f': case 'g': case 'h': case 'i': case 'j':
+      case 'k': case 'l': case 'm': case 'n': case 'o':
+      case 'p': case 'q': case 'r': case 's': case 't':
+      case 'u': case 'v': case 'w': case 'x': case 'y':
+      case 'z': case '{': case '|': case '}': case '~':
+        return true;
+      default:
+        return false;
+    }
+}
+
+static void handle_multibyte_sequence(char const **p, char const *plimit, 
+                                    char **q, size_t *displayed_width)
+{
+  mbstate_t mbstate;
+  mbszero (&mbstate);
+  
+  do
+    {
+      char32_t wc;
+      size_t bytes;
+      int w;
+
+      bytes = mbrtoc32 (&wc, *p, plimit - *p, &mbstate);
+
+      if (bytes == (size_t) -1)
+        {
+          (*p)++;
+          *(*q)++ = '?';
+          (*displayed_width)++;
+          break;
+        }
+
+      if (bytes == (size_t) -2)
+        {
+          *p = plimit;
+          *(*q)++ = '?';
+          (*displayed_width)++;
+          break;
+        }
+
+      if (bytes == 0)
+        bytes = 1;
+
+      w = c32width (wc);
+      if (w >= 0)
+        {
+          for (; bytes > 0; --bytes)
+            *(*q)++ = *(*p)++;
+          *displayed_width += w;
+        }
+      else
+        {
+          *p += bytes;
+          *(*q)++ = '?';
+          (*displayed_width)++;
+        }
+    }
+  while (! mbsinit (&mbstate));
+}
+
+static size_t process_multibyte_buffer(char *buf, size_t len)
+{
+  char const *p = buf;
+  char const *plimit = buf + len;
+  char *q = buf;
+  size_t displayed_width = 0;
+
+  while (p < plimit)
+    {
+      if (is_printable_ascii(*p))
+        {
+          *q++ = *p++;
+          displayed_width++;
+        }
+      else
+        {
+          handle_multibyte_sequence(&p, plimit, &q, &displayed_width);
+        }
+    }
+
+  return q - buf;
+}
+
+static void process_single_byte_buffer(char *buf, size_t len)
+{
+  char *p = buf;
+  char const *plimit = buf + len;
+
+  while (p < plimit)
+    {
+      if (! isprint (to_uchar (*p)))
+        *p = '?';
+      p++;
+    }
+}
+
+static size_t calculate_display_width(char const *buf, size_t len)
+{
+  if (MB_CUR_MAX > 1)
+    {
+      size_t width = mbsnwidth (buf, len, MBSWIDTH_FLAGS);
+      return MAX (0, width);
+    }
+  else
+    {
+      char const *p = buf;
+      char const *plimit = buf + len;
+      size_t width = 0;
+
+      while (p < plimit)
+        {
+          if (isprint (to_uchar (*p)))
+            width++;
+          p++;
+        }
+      return width;
+    }
+}
 
 static size_t
 quote_name_buf (char **inbuf, size_t bufsize, char *name,
@@ -6072,6 +6294,7 @@ quote_name_buf (char **inbuf, size_t bufsize, char *name,
           buf = xmalloc (len + 1);
           quotearg_buffer (buf, len + 1, name, -1, options);
         }
+
       quoted = (*name != *buf) || strlen (name) != len;
     }
   else if (needs_further_quoting)
@@ -6080,167 +6303,39 @@ quote_name_buf (char **inbuf, size_t bufsize, char *name,
       if (bufsize <= len)
         buf = xmalloc (len + 1);
       memcpy (buf, name, len + 1);
-      quoted = false;
     }
   else
     {
       len = strlen (name);
       buf = name;
-      quoted = false;
     }
 
   if (needs_further_quoting)
     {
       if (MB_CUR_MAX > 1)
-        displayed_width = process_multibyte_chars (buf, &len);
+        {
+          len = process_multibyte_buffer(buf, len);
+          displayed_width = len;
+        }
       else
-        displayed_width = process_single_byte_chars (buf, len);
+        {
+          process_single_byte_buffer(buf, len);
+          displayed_width = len;
+        }
     }
-  else if (width != nullptr)
+  else if (width != NULL)
     {
-      displayed_width = calculate_display_width (buf, len);
+      displayed_width = calculate_display_width(buf, len);
     }
 
-  if (pad != nullptr)
-    *pad = (align_variable_outer_quotes && cwd_some_quoted && ! quoted);
+  *pad = (align_variable_outer_quotes && cwd_some_quoted && ! quoted);
 
-  if (width != nullptr)
+  if (width != NULL)
     *width = displayed_width;
 
   *inbuf = buf;
 
   return len;
-}
-
-static size_t
-process_multibyte_chars (char *buf, size_t *len)
-{
-  char const *p = buf;
-  char const *plimit = buf + *len;
-  char *q = buf;
-  size_t displayed_width = 0;
-
-  while (p < plimit)
-    {
-      if (is_printable_ascii (*p))
-        {
-          *q++ = *p++;
-          displayed_width += 1;
-        }
-      else
-        {
-          size_t processed = process_multibyte_sequence (p, plimit, &q, &displayed_width);
-          p += processed;
-        }
-    }
-
-  *len = q - buf;
-  return displayed_width;
-}
-
-static bool
-is_printable_ascii (char c)
-{
-  return (c >= ' ' && c <= '~') || c == '\t';
-}
-
-static size_t
-process_multibyte_sequence (char const *p, char const *plimit, char **q, size_t *displayed_width)
-{
-  mbstate_t mbstate;
-  mbszero (&mbstate);
-  size_t total_bytes = 0;
-
-  do
-    {
-      char32_t wc;
-      size_t bytes = mbrtoc32 (&wc, p, plimit - p, &mbstate);
-
-      if (bytes == (size_t) -1)
-        {
-          **q = '?';
-          (*q)++;
-          (*displayed_width)++;
-          return 1;
-        }
-
-      if (bytes == (size_t) -2)
-        {
-          **q = '?';
-          (*q)++;
-          (*displayed_width)++;
-          return plimit - p;
-        }
-
-      if (bytes == 0)
-        bytes = 1;
-
-      int w = c32width (wc);
-      if (w >= 0)
-        {
-          memcpy (*q, p, bytes);
-          *q += bytes;
-          *displayed_width += w;
-        }
-      else
-        {
-          **q = '?';
-          (*q)++;
-          (*displayed_width)++;
-        }
-
-      p += bytes;
-      total_bytes += bytes;
-    }
-  while (!mbsinit (&mbstate) && p < plimit);
-
-  return total_bytes;
-}
-
-static size_t
-process_single_byte_chars (char *buf, size_t len)
-{
-  char *p = buf;
-  char const *plimit = buf + len;
-  size_t displayed_width = 0;
-
-  while (p < plimit)
-    {
-      if (isprint (to_uchar (*p)))
-        displayed_width++;
-      else
-        *p = '?';
-      p++;
-    }
-
-  return displayed_width;
-}
-
-static size_t
-calculate_display_width (char const *buf, size_t len)
-{
-  size_t displayed_width = 0;
-
-  if (MB_CUR_MAX > 1)
-    {
-      displayed_width = mbsnwidth (buf, len, MBSWIDTH_FLAGS);
-      if (displayed_width == (size_t) -1)
-        displayed_width = 0;
-    }
-  else
-    {
-      char const *p = buf;
-      char const *plimit = buf + len;
-
-      while (p < plimit)
-        {
-          if (isprint (to_uchar (*p)))
-            displayed_width++;
-          p++;
-        }
-    }
-
-  return displayed_width;
 }
 
 static size_t
@@ -6252,58 +6347,52 @@ quote_name_width (char const *name, struct quoting_options const *options,
   size_t width = 0;
   bool pad = false;
 
-  if (name == NULL) {
+  if (!name) {
     return 0;
   }
 
   quote_name_buf (&buf, sizeof smallbuf, (char *) name, options,
                   needs_general_quoting, &width, &pad);
 
-  if (buf != smallbuf && buf != name) {
+  if (buf && buf != smallbuf && buf != name) {
     free (buf);
   }
 
-  if (pad) {
-    width++;
-  }
-
-  return width;
+  return width + (pad ? 1 : 0);
 }
 
 /* %XX escape any input out of range as defined in RFC3986,
    and also if PATH, convert all path separators to '/'.  */
-static char *file_escape(char const *str, bool path)
+static char *
+file_escape (char const *str, bool path)
 {
-    if (!str) {
-        return NULL;
-    }
-
-    size_t len = strlen(str);
-    size_t max_size = (len * 3) + 1;
-    char *esc = xnmalloc(max_size, 1);
-    if (!esc) {
-        return NULL;
-    }
-
-    char *p = esc;
-    char *end = esc + max_size - 4;
-
-    for (size_t i = 0; i < len && p < end; i++) {
-        unsigned char ch = to_uchar(str[i]);
-        
-        if (path && ISSLASH(str[i])) {
-            *p++ = '/';
-        } else if (RFC3986[ch]) {
-            *p++ = str[i];
-        } else {
-            *p++ = '%';
-            *p++ = "0123456789abcdef"[ch >> 4];
-            *p++ = "0123456789abcdef"[ch & 0x0F];
-        }
-    }
+  if (!str) {
+    return xnmalloc(1, 1);
+  }
+  
+  size_t str_len = strlen(str);
+  char *esc = xnmalloc(3, str_len + 1);
+  char *p = esc;
+  
+  for (size_t i = 0; i < str_len; i++) {
+    unsigned char c = to_uchar(str[i]);
     
-    *p = '\0';
-    return esc;
+    if (path && ISSLASH(c)) {
+      *p++ = '/';
+    } else if (RFC3986[c]) {
+      *p++ = c;
+    } else {
+      int written = sprintf(p, "%%%02x", c);
+      if (written < 0) {
+        *esc = '\0';
+        return esc;
+      }
+      p += written;
+    }
+  }
+  
+  *p = '\0';
+  return esc;
 }
 
 static size_t
@@ -6314,65 +6403,69 @@ quote_name (char const *name, struct quoting_options const *options,
   char smallbuf[BUFSIZ];
   char *buf = smallbuf;
   size_t len;
-  bool pad = false;
-  bool skip_quotes = false;
+  bool pad;
 
-  if (!name)
+  if (!name) {
     return 0;
+  }
 
   len = quote_name_buf (&buf, sizeof smallbuf, (char *) name, options,
                         needs_general_quoting, nullptr, &pad);
 
-  if (pad && allow_pad)
+  if (len == 0) {
+    return 0;
+  }
+
+  if (pad && allow_pad) {
     dired_outbyte (' ');
+  }
 
-  if (color)
+  if (color) {
     print_color_indicator (color);
+  }
 
-  if (absolute_name)
-    {
-      if (align_variable_outer_quotes && cwd_some_quoted && !pad)
-        {
-          skip_quotes = true;
-          putchar (*buf);
-        }
-      
-      char *h = file_escape (hostname, false);
-      char *n = file_escape (absolute_name, true);
-      
-      if (h && n)
-        {
-          printf ("\033]8;;file://%s%s%s\a", h, *n == '/' ? "" : "/", n);
-        }
-      
-      free (h);
-      free (n);
+  bool skip_quotes = false;
+
+  if (absolute_name) {
+    if (align_variable_outer_quotes && cwd_some_quoted && !pad) {
+      skip_quotes = true;
+      putchar (*buf);
     }
 
-  if (stack)
+    char *h = file_escape (hostname, false);
+    char *n = file_escape (absolute_name, true);
+    
+    if (h && n) {
+      printf ("\033]8;;file://%s%s%s\a", h, *n == '/' ? "" : "/", n);
+    }
+    
+    free (h);
+    free (n);
+  }
+
+  if (stack) {
     push_current_dired_pos (stack);
+  }
 
-  size_t write_offset = skip_quotes ? 1 : 0;
-  size_t write_len = len - (skip_quotes ? 2 : 0);
-  
-  if (write_len > 0 && write_len <= len)
-    {
-      fwrite (buf + write_offset, 1, write_len, stdout);
-      dired_pos += len;
-    }
+  size_t output_len = len - (skip_quotes ? 2 : 0);
+  fwrite (buf + (skip_quotes ? 1 : 0), 1, output_len, stdout);
 
-  if (stack)
+  dired_pos += len;
+
+  if (stack) {
     push_current_dired_pos (stack);
+  }
 
-  if (absolute_name)
-    {
-      fputs ("\033]8;;\a", stdout);
-      if (skip_quotes && len > 0)
-        putchar (buf[len - 1]);
+  if (absolute_name) {
+    fputs ("\033]8;;\a", stdout);
+    if (skip_quotes && len > 0) {
+      putchar (*(buf + len - 1));
     }
+  }
 
-  if (buf != smallbuf && buf != name)
+  if (buf != smallbuf && buf != name) {
     free (buf);
+  }
 
   return len + (pad ? 1 : 0);
 }
@@ -6383,37 +6476,34 @@ print_name_with_quoting (const struct fileinfo *f,
                          struct obstack *stack,
                          size_t start_col)
 {
-  if (!f || !stack)
+  if (!f) {
     return 0;
+  }
 
   char const *name = symlink_target ? f->linkname : f->name;
-  if (!name)
+  if (!name) {
     return 0;
+  }
 
   const struct bin_str *color = NULL;
-  bool used_color_this_time = false;
+  if (print_with_color) {
+    color = get_color_indicator (f, symlink_target);
+  }
 
-  if (print_with_color)
-    {
-      color = get_color_indicator (f, symlink_target);
-      used_color_this_time = (color || is_colored (C_NORM));
-    }
+  bool used_color_this_time = print_with_color && (color || is_colored (C_NORM));
 
   size_t len = quote_name (name, filename_quoting_options, f->quoted,
                            color, !symlink_target, stack, f->absolute_name);
 
   process_signals ();
+  
+  if (used_color_this_time) {
+    prep_non_filename_text ();
 
-  if (!used_color_this_time || !line_length)
-    return len;
-
-  prep_non_filename_text ();
-
-  size_t start_line = start_col / line_length;
-  size_t end_line = (start_col + len - 1) / line_length;
-
-  if (start_line != end_line)
-    put_indicator (&color_indicator[C_CLR_TO_EOL]);
+    if (line_length && start_col / line_length != (start_col + len - 1) / line_length) {
+      put_indicator (&color_indicator[C_CLR_TO_EOL]);
+    }
+  }
 
   return len;
 }
@@ -6424,12 +6514,13 @@ prep_non_filename_text (void)
   if (color_indicator[C_END].string != NULL)
     {
       put_indicator (&color_indicator[C_END]);
-      return;
     }
-  
-  put_indicator (&color_indicator[C_LEFT]);
-  put_indicator (&color_indicator[C_RESET]);
-  put_indicator (&color_indicator[C_RIGHT]);
+  else
+    {
+      put_indicator (&color_indicator[C_LEFT]);
+      put_indicator (&color_indicator[C_RESET]);
+      put_indicator (&color_indicator[C_RIGHT]);
+    }
 }
 
 /* Print the file name of 'f' with appropriate quoting.
@@ -6440,50 +6531,49 @@ static size_t
 print_file_name_and_frills (const struct fileinfo *f, size_t start_col)
 {
   char buf[MAX (LONGEST_HUMAN_READABLE + 1, INT_BUFSIZE_BOUND (uintmax_t))];
+  size_t width;
+
+  if (!f) {
+    return 0;
+  }
 
   set_normal_color ();
 
-  if (print_inode)
-    {
-      int width = (format == with_commas) ? 0 : inode_number_width;
-      printf ("%*s ", width, format_inode (buf, f));
+  if (print_inode) {
+    int field_width = (format == with_commas) ? 0 : inode_number_width;
+    printf ("%*s ", field_width, format_inode (buf, f));
+  }
+
+  if (print_block_size) {
+    const char *blocks;
+    int blocks_width;
+    int pad;
+
+    if (!f->stat_ok) {
+      blocks = "?";
+    } else {
+      blocks = human_readable (STP_NBLOCKS (&f->stat), buf, human_output_opts,
+                              ST_NBLOCKSIZE, output_block_size);
     }
 
-  if (print_block_size)
-    {
-      char const *blocks = "?";
-      
-      if (f->stat_ok)
-        {
-          blocks = human_readable (STP_NBLOCKS (&f->stat), buf, human_output_opts,
-                                   ST_NBLOCKSIZE, output_block_size);
-        }
-      
-      int pad = 0;
-      if (format != with_commas && block_size_width)
-        {
-          int blocks_width = mbswidth (blocks, MBSWIDTH_FLAGS);
-          if (blocks_width >= 0)
-            {
-              pad = block_size_width - blocks_width;
-            }
-        }
-      
-      printf ("%*s%s ", pad, "", blocks);
+    blocks_width = mbswidth (blocks, MBSWIDTH_FLAGS);
+    pad = 0;
+    if (blocks_width >= 0 && block_size_width && format != with_commas) {
+      pad = block_size_width - blocks_width;
     }
+    printf ("%*s%s ", pad, "", blocks);
+  }
 
-  if (print_scontext)
-    {
-      int width = (format == with_commas) ? 0 : scontext_width;
-      printf ("%*s ", width, f->scontext);
-    }
+  if (print_scontext) {
+    int field_width = (format == with_commas) ? 0 : scontext_width;
+    printf ("%*s ", field_width, f->scontext);
+  }
 
-  size_t width = print_name_with_quoting (f, false, nullptr, start_col);
+  width = print_name_with_quoting (f, false, nullptr, start_col);
 
-  if (indicator_style != none)
-    {
-      width += print_type_indicator (f->stat_ok, f->stat.st_mode, f->filetype);
-    }
+  if (indicator_style != none) {
+    width += print_type_indicator (f->stat_ok, f->stat.st_mode, f->filetype);
+  }
 
   return width;
 }
@@ -6493,39 +6583,29 @@ print_file_name_and_frills (const struct fileinfo *f, size_t start_col)
 static char
 get_type_indicator (bool stat_ok, mode_t mode, enum filetype type)
 {
-  if (stat_ok) {
-    if (S_ISREG (mode)) {
-      if (indicator_style == classify && (mode & S_IXUGO))
-        return '*';
-      return 0;
+  if (stat_ok ? S_ISREG (mode) : type == normal)
+    {
+      return (stat_ok && indicator_style == classify && (mode & S_IXUGO)) ? '*' : 0;
     }
-    if (S_ISDIR (mode))
-      return '/';
-    if (indicator_style == slash)
-      return 0;
-    if (S_ISLNK (mode))
-      return '@';
-    if (S_ISFIFO (mode))
-      return '|';
-    if (S_ISSOCK (mode))
-      return '=';
-    if (S_ISDOOR (mode))
-      return '>';
-    return 0;
-  }
-  
-  if (type == normal)
-    return 0;
-  if (type == directory || type == arg_directory)
+
+  if (stat_ok ? S_ISDIR (mode) : type == directory || type == arg_directory)
     return '/';
+  
   if (indicator_style == slash)
     return 0;
-  if (type == symbolic_link)
+  
+  if (stat_ok ? S_ISLNK (mode) : type == symbolic_link)
     return '@';
-  if (type == fifo)
+  
+  if (stat_ok ? S_ISFIFO (mode) : type == fifo)
     return '|';
-  if (type == sock)
+  
+  if (stat_ok ? S_ISSOCK (mode) : type == sock)
     return '=';
+  
+  if (stat_ok && S_ISDOOR (mode))
+    return '>';
+  
   return 0;
 }
 
@@ -6534,11 +6614,8 @@ print_type_indicator (bool stat_ok, mode_t mode, enum filetype type)
 {
   char c = get_type_indicator (stat_ok, mode, type);
   if (c != '\0')
-    {
-      dired_outbyte (c);
-      return true;
-    }
-  return false;
+    dired_outbyte (c);
+  return (c != '\0');
 }
 
 /* Returns if color sequence was printed.  */
@@ -6550,11 +6627,11 @@ print_color_indicator (const struct bin_str *ind)
 
   if (is_colored (C_NORM))
     restore_default_color ();
-    
+  
   put_indicator (&color_indicator[C_LEFT]);
   put_indicator (ind);
   put_indicator (&color_indicator[C_RIGHT]);
-  
+
   return true;
 }
 
@@ -6563,6 +6640,8 @@ ATTRIBUTE_PURE
 static const struct bin_str*
 get_color_indicator (const struct fileinfo *f, bool symlink_target)
 {
+  if (!f) return nullptr;
+
   char const *name;
   mode_t mode;
   int linkok;
@@ -6580,16 +6659,14 @@ get_color_indicator (const struct fileinfo *f, bool symlink_target)
       linkok = f->linkok;
     }
 
-  enum indicator_no type = determine_file_type(f, mode, linkok);
+  if (!name) return nullptr;
+
+  enum indicator_no type = get_file_type_indicator(f, mode, linkok);
   
+  struct color_ext_type *ext = nullptr;
   if (type == C_FILE)
     {
-      struct color_ext_type *ext = find_matching_extension(name);
-      if (ext != nullptr)
-        {
-          const struct bin_str *s = &(ext->seq);
-          return s->string ? s : nullptr;
-        }
+      ext = find_color_extension(name);
     }
 
   if (type == C_LINK && !linkok)
@@ -6598,25 +6675,31 @@ get_color_indicator (const struct fileinfo *f, bool symlink_target)
         type = C_ORPHAN;
     }
 
-  const struct bin_str *s = &color_indicator[type];
+  const struct bin_str *const s = ext ? &(ext->seq) : &color_indicator[type];
   return s->string ? s : nullptr;
 }
 
 static enum indicator_no
-determine_file_type(const struct fileinfo *f, mode_t mode, int linkok)
+get_file_type_indicator(const struct fileinfo *f, mode_t mode, int linkok)
 {
   if (linkok == -1 && is_colored (C_MISSING))
     return C_MISSING;
     
   if (!f->stat_ok)
-    return get_filetype_indicator(f->filetype);
-    
+    {
+      static enum indicator_no const filetype_indicator[] =
+        {
+          C_ORPHAN, C_FIFO, C_CHR, C_DIR, C_BLK, C_FILE,
+          C_LINK, C_SOCK, C_FILE, C_DIR
+        };
+      static_assert (ARRAY_CARDINALITY (filetype_indicator) == filetype_cardinality);
+      return filetype_indicator[f->filetype];
+    }
+
   if (S_ISREG (mode))
     return get_regular_file_type(f, mode);
-    
   if (S_ISDIR (mode))
     return get_directory_type(mode);
-    
   if (S_ISLNK (mode))
     return C_LINK;
   if (S_ISFIFO (mode))
@@ -6634,19 +6717,6 @@ determine_file_type(const struct fileinfo *f, mode_t mode, int linkok)
 }
 
 static enum indicator_no
-get_filetype_indicator(int filetype)
-{
-  static enum indicator_no const filetype_indicator[] =
-    {
-      C_ORPHAN, C_FIFO, C_CHR, C_DIR, C_BLK, C_FILE,
-      C_LINK, C_SOCK, C_FILE, C_DIR
-    };
-  static_assert (ARRAY_CARDINALITY (filetype_indicator)
-                 == filetype_cardinality);
-  return filetype_indicator[filetype];
-}
-
-static enum indicator_no
 get_regular_file_type(const struct fileinfo *f, mode_t mode)
 {
   if ((mode & S_ISUID) != 0 && is_colored (C_SETUID))
@@ -6659,41 +6729,46 @@ get_regular_file_type(const struct fileinfo *f, mode_t mode)
     return C_EXEC;
   if ((1 < f->stat.st_nlink) && is_colored (C_MULTIHARDLINK))
     return C_MULTIHARDLINK;
+    
   return C_FILE;
 }
 
 static enum indicator_no
 get_directory_type(mode_t mode)
 {
-  if ((mode & S_ISVTX) && (mode & S_IWOTH)
-      && is_colored (C_STICKY_OTHER_WRITABLE))
+  if ((mode & S_ISVTX) && (mode & S_IWOTH) && is_colored (C_STICKY_OTHER_WRITABLE))
     return C_STICKY_OTHER_WRITABLE;
   if ((mode & S_IWOTH) != 0 && is_colored (C_OTHER_WRITABLE))
     return C_OTHER_WRITABLE;
   if ((mode & S_ISVTX) != 0 && is_colored (C_STICKY))
     return C_STICKY;
+    
   return C_DIR;
 }
 
-static struct color_ext_type*
-find_matching_extension(const char *name)
+static struct color_ext_type *
+find_color_extension(const char *name)
 {
-  size_t len = strlen(name);
+  size_t len = strlen (name);
   const char *name_end = name + len;
   
   for (struct color_ext_type *ext = color_ext_list; ext != nullptr; ext = ext->next)
     {
-      if (ext->ext.len > len)
-        continue;
-        
-      const char *suffix_start = name_end - ext->ext.len;
-      bool matches = ext->exact_match
-        ? STREQ_LEN(suffix_start, ext->ext.string, ext->ext.len)
-        : (c_strncasecmp(suffix_start, ext->ext.string, ext->ext.len) == 0);
-        
-      if (matches)
-        return ext;
+      if (ext->ext.len <= len)
+        {
+          if (ext->exact_match)
+            {
+              if (STREQ_LEN (name_end - ext->ext.len, ext->ext.string, ext->ext.len))
+                return ext;
+            }
+          else
+            {
+              if (c_strncasecmp (name_end - ext->ext.len, ext->ext.string, ext->ext.len) == 0)
+                return ext;
+            }
+        }
     }
+    
   return nullptr;
 }
 
@@ -6701,23 +6776,24 @@ find_matching_extension(const char *name)
 static void
 put_indicator (const struct bin_str *ind)
 {
-  if (ind == NULL) {
+  if (ind == NULL || ind->string == NULL)
     return;
-  }
 
-  if (!used_color) {
-    used_color = true;
+  if (!used_color)
+    {
+      used_color = true;
 
-    if (tcgetpgrp(STDOUT_FILENO) >= 0) {
-      signal_init();
+      if (tcgetpgrp(STDOUT_FILENO) >= 0)
+        signal_init();
+
+      prep_non_filename_text();
     }
 
-    prep_non_filename_text();
-  }
-
-  if (ind->string != NULL && ind->len > 0) {
-    fwrite(ind->string, ind->len, 1, stdout);
-  }
+  if (fwrite(ind->string, ind->len, 1, stdout) != 1)
+    {
+      if (ferror(stdout))
+        return;
+    }
 }
 
 static size_t
@@ -6728,41 +6804,31 @@ length_of_file_name_and_frills (const struct fileinfo *f)
 
   if (print_inode)
     {
-      size_t inode_len = (format == with_commas)
-                         ? strlen (umaxtostr (f->stat.st_ino, buf))
-                         : inode_number_width;
-      len += 1 + inode_len;
+      if (format == with_commas)
+        len += 1 + strlen (umaxtostr (f->stat.st_ino, buf));
+      else
+        len += 1 + inode_number_width;
     }
 
   if (print_block_size)
     {
-      size_t block_len;
       if (format == with_commas)
         {
-          if (!f->stat_ok)
-            {
-              block_len = 1;
-            }
-          else
-            {
-              block_len = strlen (human_readable (STP_NBLOCKS (&f->stat), buf,
-                                                 human_output_opts, ST_NBLOCKSIZE,
-                                                 output_block_size));
-            }
+          const char *block_str = f->stat_ok ? 
+            human_readable (STP_NBLOCKS (&f->stat), buf, human_output_opts, 
+                          ST_NBLOCKSIZE, output_block_size) : "?";
+          len += 1 + strlen (block_str);
         }
       else
-        {
-          block_len = block_size_width;
-        }
-      len += 1 + block_len;
+        len += 1 + block_size_width;
     }
 
   if (print_scontext)
     {
-      size_t scontext_len = (format == with_commas)
-                           ? strlen (f->scontext)
-                           : scontext_width;
-      len += 1 + scontext_len;
+      if (format == with_commas)
+        len += 1 + strlen (f->scontext);
+      else
+        len += 1 + scontext_width;
     }
 
   len += fileinfo_name_width (f);
@@ -6771,9 +6837,7 @@ length_of_file_name_and_frills (const struct fileinfo *f)
     {
       char c = get_type_indicator (f->stat_ok, f->stat.st_mode, f->filetype);
       if (c != 0)
-        {
-          len += 1;
-        }
+        len += 1;
     }
 
   return len;
@@ -6783,42 +6847,40 @@ static void
 print_many_per_line (void)
 {
   idx_t cols = calculate_columns (true);
-  if (cols == 0)
-    return;
-    
+  if (cols == 0) return;
+  
   struct column_info const *line_fmt = &column_info[cols - 1];
-  idx_t rows = (cwd_n_used + cols - 1) / cols;
+  if (!line_fmt) return;
+
+  idx_t rows = cwd_n_used / cols + (cwd_n_used % cols != 0);
+  if (rows == 0) return;
 
   for (idx_t row = 0; row < rows; row++)
     {
-      print_row (row, rows, cols, line_fmt);
-      putchar (eolbyte);
-    }
-}
+      size_t col = 0;
+      idx_t filesno = row;
+      size_t pos = 0;
 
-static void
-print_row (idx_t row, idx_t rows, idx_t cols, struct column_info const *line_fmt)
-{
-  size_t pos = 0;
-  
-  for (size_t col = 0; col < cols; col++)
-    {
-      idx_t filesno = row + (col * rows);
-      
-      if (filesno >= cwd_n_used)
-        break;
-        
-      struct fileinfo const *f = sorted_file[filesno];
-      size_t name_length = length_of_file_name_and_frills (f);
-      size_t max_name_length = line_fmt->col_arr[col];
-      
-      print_file_name_and_frills (f, pos);
-      
-      if (filesno + rows < cwd_n_used)
+      while (filesno < cwd_n_used)
         {
+          if (filesno >= cwd_n_used || !sorted_file[filesno])
+            break;
+            
+          struct fileinfo const *f = sorted_file[filesno];
+          size_t name_length = length_of_file_name_and_frills (f);
+          size_t max_name_length = line_fmt->col_arr[col];
+          
+          print_file_name_and_frills (f, pos);
+
+          filesno += rows;
+          if (filesno >= cwd_n_used)
+            break;
+
+          col++;
           indent (pos + name_length, pos + max_name_length);
           pos += max_name_length;
         }
+      putchar (eolbyte);
     }
 }
 
@@ -6826,45 +6888,37 @@ static void
 print_horizontal (void)
 {
   idx_t cols = calculate_columns (false);
-  if (cols <= 0 || cwd_n_used <= 0)
-    {
-      return;
-    }
-
+  if (cols == 0 || cwd_n_used == 0)
+    return;
+  
   struct column_info const *line_fmt = &column_info[cols - 1];
-  if (line_fmt == NULL || line_fmt->col_arr == NULL)
-    {
-      return;
-    }
-
   size_t pos = 0;
   
-  for (idx_t filesno = 0; filesno < cwd_n_used; filesno++)
-    {
-      if (sorted_file[filesno] == NULL)
-        {
-          continue;
-        }
+  struct fileinfo const *f = sorted_file[0];
+  print_file_name_and_frills (f, 0);
+  size_t name_length = length_of_file_name_and_frills (f);
+  size_t max_name_length = line_fmt->col_arr[0];
 
+  for (idx_t filesno = 1; filesno < cwd_n_used; filesno++)
+    {
       idx_t col = filesno % cols;
-      
-      if (filesno > 0 && col == 0)
+
+      if (col == 0)
         {
           putchar (eolbyte);
           pos = 0;
         }
-
-      if (filesno > 0 && col != 0)
+      else
         {
-          size_t prev_name_length = length_of_file_name_and_frills (sorted_file[filesno - 1]);
-          size_t prev_max_name_length = line_fmt->col_arr[(filesno - 1) % cols];
-          indent (pos + prev_name_length, pos + prev_max_name_length);
-          pos += prev_max_name_length;
+          indent (pos + name_length, pos + max_name_length);
+          pos += max_name_length;
         }
 
-      print_file_name_and_frills (sorted_file[filesno], pos);
+      f = sorted_file[filesno];
+      print_file_name_and_frills (f, pos);
+      name_length = length_of_file_name_and_frills (f);
+      max_name_length = line_fmt->col_arr[col];
     }
-  
   putchar (eolbyte);
 }
 
@@ -6882,20 +6936,21 @@ print_with_separator (char sep)
 
       if (filesno != 0)
         {
-          bool fits_on_line = !line_length || (pos + len + 2 < line_length);
-          
-          if (fits_on_line)
+          char separator;
+
+          if (!line_length || (pos <= SIZE_MAX - len - 2 && pos + len + 2 < line_length))
             {
               pos += 2;
-              putchar (sep);
-              putchar (' ');
+              separator = ' ';
             }
           else
             {
               pos = 0;
-              putchar (sep);
-              putchar (eolbyte);
+              separator = eolbyte;
             }
+
+          putchar (sep);
+          putchar (separator);
         }
 
       print_file_name_and_frills (f, pos);
@@ -6910,35 +6965,19 @@ print_with_separator (char sep)
 static void
 indent (size_t from, size_t to)
 {
-  if (from >= to)
+  while (from < to)
     {
-      return;
-    }
-
-  if (tabsize == 0)
-    {
-      for (size_t i = from; i < to; i++)
+      if (tabsize > 0 && to / tabsize > (from + 1) / tabsize)
         {
-          putchar (' ');
-        }
-      return;
-    }
-
-  size_t current = from;
-  size_t next_tab_stop = ((current / tabsize) + 1) * tabsize;
-
-  while (current < to)
-    {
-      if (next_tab_stop <= to)
-        {
-          putchar ('\t');
-          current = next_tab_stop;
-          next_tab_stop += tabsize;
+          if (putchar ('\t') == EOF)
+            return;
+          from += tabsize - from % tabsize;
         }
       else
         {
-          putchar (' ');
-          current++;
+          if (putchar (' ') == EOF)
+            return;
+          from++;
         }
     }
 }
@@ -6950,25 +6989,28 @@ indent (size_t from, size_t to)
 static void
 attach (char *dest, char const *dirname, char const *name)
 {
-  if (dest == NULL || dirname == NULL || name == NULL)
+  if (!dest || !dirname || !name) {
+    if (dest) *dest = '\0';
     return;
+  }
 
-  size_t dirname_len = strlen(dirname);
-  int is_current_dir = (dirname_len == 1 && dirname[0] == '.');
+  char *current = dest;
   
-  if (!is_current_dir)
-    {
-      memcpy(dest, dirname, dirname_len);
-      dest += dirname_len;
-      
-      if (dirname_len > 0 && dirname[dirname_len - 1] != '/')
-        {
-          *dest = '/';
-          dest++;
-        }
+  if (dirname[0] != '.' || dirname[1] != '\0') {
+    while (*dirname) {
+      *current++ = *dirname++;
     }
+    
+    if (current > dest && current[-1] != '/') {
+      *current++ = '/';
+    }
+  }
   
-  strcpy(dest, name);
+  while (*name) {
+    *current++ = *name++;
+  }
+  
+  *current = '\0';
 }
 
 /* Allocate enough column info suitable for the current number of
@@ -6982,24 +7024,20 @@ init_column_info (idx_t max_cols)
 
   if (column_info_alloc < max_cols)
     {
-      idx_t old_alloc = column_info_alloc;
+      idx_t old_column_info_alloc = column_info_alloc;
       column_info = xpalloc (column_info, &column_info_alloc,
                              max_cols - column_info_alloc, -1,
                              sizeof *column_info);
 
-      idx_t growth = column_info_alloc - old_alloc;
-      idx_t sum_bounds;
-      idx_t total_size;
+      idx_t column_info_growth = column_info_alloc - old_column_info_alloc;
+      idx_t triangle_size;
+      if (ckd_add (&triangle_size, old_column_info_alloc + 1, column_info_alloc)
+          || ckd_mul (&triangle_size, triangle_size, column_info_growth))
+        xalloc_die ();
       
-      if (ckd_add (&sum_bounds, old_alloc + 1, column_info_alloc))
-        xalloc_die ();
-        
-      if (ckd_mul (&total_size, sum_bounds, growth))
-        xalloc_die ();
-        
-      size_t *p = xinmalloc (total_size >> 1, sizeof *p);
+      size_t *p = xinmalloc (triangle_size >> 1, sizeof *p);
 
-      for (idx_t i = old_alloc; i < column_info_alloc; i++)
+      for (idx_t i = old_column_info_alloc; i < column_info_alloc; i++)
         {
           column_info[i].col_arr = p;
           p += i + 1;
@@ -7021,10 +7059,10 @@ init_column_info (idx_t max_cols)
 static idx_t
 calculate_columns (bool by_columns)
 {
-  idx_t max_cols = (max_idx > 0 && max_idx < cwd_n_used) ? max_idx : cwd_n_used;
+  idx_t max_cols = (0 < max_idx && max_idx < cwd_n_used) ? max_idx : cwd_n_used;
   
-  if (max_cols == 0) {
-    return 0;
+  if (max_cols <= 0) {
+    return 1;
   }
 
   init_column_info (max_cols);
@@ -7043,59 +7081,30 @@ calculate_columns (bool by_columns)
           if (!column_info[i].valid_len) {
             continue;
           }
-
-          idx_t idx = calculate_index(by_columns, filesno, cwd_n_used, i);
-          size_t real_length = calculate_real_length(name_length, idx, i);
           
-          update_column_info(i, idx, real_length);
+          idx_t columns = i + 1;
+          idx_t idx = by_columns 
+            ? filesno / ((cwd_n_used + i) / columns)
+            : filesno % columns;
+          
+          size_t spacing = (idx == i) ? 0 : 2;
+          size_t real_length = name_length + spacing;
+
+          if (column_info[i].col_arr[idx] < real_length)
+            {
+              column_info[i].line_len += (real_length - column_info[i].col_arr[idx]);
+              column_info[i].col_arr[idx] = real_length;
+              column_info[i].valid_len = (column_info[i].line_len < line_length);
+            }
         }
     }
 
-  return find_maximum_columns(max_cols);
-}
-
-static idx_t
-calculate_index(bool by_columns, idx_t filesno, idx_t total_files, idx_t col_index)
-{
-  if (by_columns) {
-    idx_t divisor = col_index + 1;
-    if (divisor == 0) {
-      return 0;
-    }
-    return filesno / ((total_files + col_index) / divisor);
-  }
-  return filesno % (col_index + 1);
-}
-
-static size_t
-calculate_real_length(size_t name_length, idx_t idx, idx_t col_index)
-{
-  size_t padding = (idx == col_index) ? 0 : 2;
-  return name_length + padding;
-}
-
-static void
-update_column_info(idx_t col_index, idx_t idx, size_t real_length)
-{
-  if (column_info[col_index].col_arr[idx] >= real_length) {
-    return;
-  }
-  
-  size_t length_diff = real_length - column_info[col_index].col_arr[idx];
-  column_info[col_index].line_len += length_diff;
-  column_info[col_index].col_arr[idx] = real_length;
-  column_info[col_index].valid_len = (column_info[col_index].line_len < line_length);
-}
-
-static idx_t
-find_maximum_columns(idx_t max_cols)
-{
   for (idx_t cols = max_cols; cols > 1; --cols)
     {
-      if (column_info[cols - 1].valid_len) {
+      if (column_info[cols - 1].valid_len)
         return cols;
-      }
     }
+
   return 1;
 }
 
@@ -7103,99 +7112,157 @@ void
 usage (int status)
 {
   if (status != EXIT_SUCCESS)
+    emit_try_help ();
+  else
     {
-      emit_try_help ();
-      exit (status);
-    }
-
-  printf (_("Usage: %s [OPTION]... [FILE]...\n"), program_name);
-  fputs (_("\
+      printf (_("Usage: %s [OPTION]... [FILE]...\n"), program_name);
+      fputs (_("\
 List information about the FILEs (the current directory by default).\n\
 Sort entries alphabetically if none of -cftuvSUX nor --sort is specified.\n\
 "), stdout);
 
-  emit_mandatory_arg_note ();
+      emit_mandatory_arg_note ();
 
-  fputs (_("\
+      fputs (_("\
   -a, --all                  do not ignore entries starting with .\n\
   -A, --almost-all           do not list implied . and ..\n\
       --author               with -l, print the author of each file\n\
   -b, --escape               print C-style escapes for nongraphic characters\n\
+"), stdout);
+      fputs (_("\
       --block-size=SIZE      with -l, scale sizes by SIZE when printing them;\n\
                              e.g., '--block-size=M'; see SIZE format below\n\
 \n\
+"), stdout);
+      fputs (_("\
   -B, --ignore-backups       do not list implied entries ending with ~\n\
+"), stdout);
+      fputs (_("\
   -c                         with -lt: sort by, and show, ctime (time of last\n\
                              change of file status information);\n\
                              with -l: show ctime and sort by name;\n\
                              otherwise: sort by ctime, newest first\n\
 \n\
+"), stdout);
+      fputs (_("\
   -C                         list entries by columns\n\
       --color[=WHEN]         color the output WHEN; more info below\n\
   -d, --directory            list directories themselves, not their contents\n\
   -D, --dired                generate output designed for Emacs' dired mode\n\
+"), stdout);
+      fputs (_("\
   -f                         same as -a -U\n\
   -F, --classify[=WHEN]      append indicator (one of */=>@|) to entries WHEN\n\
       --file-type            likewise, except do not append '*'\n\
+"), stdout);
+      fputs (_("\
       --format=WORD          across,horizontal (-x), commas (-m), long (-l),\n\
                              single-column (-1), verbose (-l), vertical (-C)\n\
 \n\
+"), stdout);
+      fputs (_("\
       --full-time            like -l --time-style=full-iso\n\
+"), stdout);
+      fputs (_("\
   -g                         like -l, but do not list owner\n\
+"), stdout);
+      fputs (_("\
       --group-directories-first\n\
                              group directories before files\n\
+"), stdout);
+      fputs (_("\
   -G, --no-group             in a long listing, don't print group names\n\
+"), stdout);
+      fputs (_("\
   -h, --human-readable       with -l and -s, print sizes like 1K 234M 2G etc.\n\
       --si                   likewise, but use powers of 1000 not 1024\n\
+"), stdout);
+      fputs (_("\
   -H, --dereference-command-line\n\
                              follow symbolic links listed on the command line\n\
+"), stdout);
+      fputs (_("\
       --dereference-command-line-symlink-to-dir\n\
                              follow each command line symbolic link\n\
                              that points to a directory\n\
 \n\
+"), stdout);
+      fputs (_("\
       --hide=PATTERN         do not list implied entries matching shell PATTERN\n\
                              (overridden by -a or -A)\n\
 \n\
+"), stdout);
+      fputs (_("\
       --hyperlink[=WHEN]     hyperlink file names WHEN\n\
+"), stdout);
+      fputs (_("\
       --indicator-style=WORD\n\
                              append indicator with style WORD to entry names:\n\
                              none (default), slash (-p),\n\
                              file-type (--file-type), classify (-F)\n\
 \n\
+"), stdout);
+      fputs (_("\
   -i, --inode                print the index number of each file\n\
   -I, --ignore=PATTERN       do not list implied entries matching shell PATTERN\n\
+"), stdout);
+      fputs (_("\
   -k, --kibibytes            default to 1024-byte blocks for file system usage;\n\
                              used only with -s and per directory totals\n\
 \n\
+"), stdout);
+      fputs (_("\
   -l                         use a long listing format\n\
+"), stdout);
+      fputs (_("\
   -L, --dereference          when showing file information for a symbolic\n\
                              link, show information for the file the link\n\
                              references rather than for the link itself\n\
 \n\
+"), stdout);
+      fputs (_("\
   -m                         fill width with a comma separated list of entries\n\
+"), stdout);
+      fputs (_("\
   -n, --numeric-uid-gid      like -l, but list numeric user and group IDs\n\
   -N, --literal              print entry names without quoting\n\
   -o                         like -l, but do not list group information\n\
   -p, --indicator-style=slash\n\
                              append / indicator to directories\n\
+"), stdout);
+      fputs (_("\
   -q, --hide-control-chars   print ? instead of nongraphic characters\n\
+"), stdout);
+      fputs (_("\
       --show-control-chars   show nongraphic characters as-is (the default,\n\
                              unless program is 'ls' and output is a terminal)\n\
 \n\
+"), stdout);
+      fputs (_("\
   -Q, --quote-name           enclose entry names in double quotes\n\
+"), stdout);
+      fputs (_("\
       --quoting-style=WORD   use quoting style WORD for entry names:\n\
                              literal, locale, shell, shell-always,\n\
                              shell-escape, shell-escape-always, c, escape\n\
                              (overrides QUOTING_STYLE environment variable)\n\
 \n\
+"), stdout);
+      fputs (_("\
   -r, --reverse              reverse order while sorting\n\
   -R, --recursive            list subdirectories recursively\n\
   -s, --size                 print the allocated size of each file, in blocks\n\
+"), stdout);
+      fputs (_("\
   -S                         sort by file size, largest first\n\
+"), stdout);
+      fputs (_("\
       --sort=WORD            change default 'name' sort to WORD:\n\
                                none (-U), size (-S), time (-t),\n\
                                version (-v), extension (-X), name, width\n\
 \n\
+"), stdout);
+      fputs (_("\
       --time=WORD            select which timestamp used to display or sort;\n\
                                access time (-u): atime, access, use;\n\
                                metadata change time (-c): ctime, status;\n\
@@ -7204,16 +7271,28 @@ Sort entries alphabetically if none of -cftuvSUX nor --sort is specified.\n\
                              with -l, WORD determines which time to show;\n\
                              with --sort=time, sort by WORD (newest first)\n\
 \n\
+"), stdout);
+      fputs (_("\
       --time-style=TIME_STYLE\n\
                              time/date format with -l; see TIME_STYLE below\n\
+"), stdout);
+      fputs (_("\
   -t                         sort by time, newest first; see --time\n\
   -T, --tabsize=COLS         assume tab stops at each COLS instead of 8\n\
+"), stdout);
+      fputs (_("\
   -u                         with -lt: sort by, and show, access time;\n\
                              with -l: show access time and sort by name;\n\
                              otherwise: sort by access time, newest first\n\
 \n\
+"), stdout);
+      fputs (_("\
   -U                         do not sort directory entries\n\
+"), stdout);
+      fputs (_("\
   -v                         natural sort of (version) numbers within text\n\
+"), stdout);
+      fputs (_("\
   -w, --width=COLS           set output width to COLS.  0 means no limit\n\
   -x                         list entries by lines instead of by columns\n\
   -X                         sort alphabetically by entry extension\n\
@@ -7221,32 +7300,36 @@ Sort entries alphabetically if none of -cftuvSUX nor --sort is specified.\n\
       --zero                 end each output line with NUL, not newline\n\
   -1                         list one file per line\n\
 "), stdout);
-
-  fputs (HELP_OPTION_DESCRIPTION, stdout);
-  fputs (VERSION_OPTION_DESCRIPTION, stdout);
-  emit_size_note ();
-
-  fputs (_("\
+      fputs (HELP_OPTION_DESCRIPTION, stdout);
+      fputs (VERSION_OPTION_DESCRIPTION, stdout);
+      emit_size_note ();
+      fputs (_("\
 \n\
 The TIME_STYLE argument can be full-iso, long-iso, iso, locale, or +FORMAT.\n\
 FORMAT is interpreted like in date(1).  If FORMAT is FORMAT1<newline>FORMAT2,\n\
 then FORMAT1 applies to non-recent files and FORMAT2 to recent files.\n\
 TIME_STYLE prefixed with 'posix-' takes effect only outside the POSIX locale.\n\
 Also the TIME_STYLE environment variable sets the default style to use.\n\
+"), stdout);
+      fputs (_("\
 \n\
 The WHEN argument defaults to 'always' and can also be 'auto' or 'never'.\n\
+"), stdout);
+      fputs (_("\
 \n\
 Using color to distinguish file types is disabled both by default and\n\
 with --color=never.  With --color=auto, ls emits color codes only when\n\
 standard output is connected to a terminal.  The LS_COLORS environment\n\
 variable can change the settings.  Use the dircolors(1) command to set it.\n\
+"), stdout);
+      fputs (_("\
 \n\
 Exit status:\n\
  0  if OK,\n\
  1  if minor problems (e.g., cannot access subdirectory),\n\
  2  if serious trouble (e.g., cannot access command-line argument).\n\
 "), stdout);
-
-  emit_ancillary_info (PROGRAM_NAME);
+      emit_ancillary_info (PROGRAM_NAME);
+    }
   exit (status);
 }
